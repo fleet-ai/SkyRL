@@ -20,8 +20,7 @@ num_nodes: 1
 
 workdir:
   url: https://github.com/fleet-ai/SkyRL.git
-  # NOTE: Update to 'main' after PR is merged
-  ref: fleet-integration
+  ref: main
 
 secrets:
   WANDB_API_KEY: null
