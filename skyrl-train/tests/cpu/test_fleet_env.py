@@ -2,10 +2,26 @@
 
 import json
 import os
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 from omegaconf import DictConfig
+
+# Mock external modules before importing env to avoid ImportError in CI
+# Mock fleet SDK
+mock_fleet_module = MagicMock()
+mock_fleet_module.Fleet = MagicMock()
+sys.modules["fleet"] = mock_fleet_module
+
+# Mock skyrl_gym base classes
+mock_base_text_env = MagicMock()
+mock_base_text_env.BaseTextEnv = object  # Use object as base class for tests
+mock_base_text_env.BaseTextEnvStepOutput = MagicMock()
+mock_base_text_env.ConversationType = list
+sys.modules["skyrl_gym"] = MagicMock()
+sys.modules["skyrl_gym.envs"] = MagicMock()
+sys.modules["skyrl_gym.envs.base_text_env"] = mock_base_text_env
 
 from integrations.fleet.env import (
     load_tasks_from_json,
