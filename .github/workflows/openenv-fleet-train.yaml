@@ -28,6 +28,11 @@ on:
           - vast
         default: any
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 env:
   RUN_NAME_PREFIX: "openenv-fleet"
 
