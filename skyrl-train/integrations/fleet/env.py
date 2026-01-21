@@ -24,7 +24,7 @@ _TASK_CACHE: Dict[str, Dict[str, Any]] = {}
 def _run_async(coro):
     """Run async coroutine, handling both sync and async contexts."""
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         # Already in async context - this shouldn't happen in SkyRL's sync step()
         raise RuntimeError("Cannot call sync step() from async context")
     except RuntimeError:

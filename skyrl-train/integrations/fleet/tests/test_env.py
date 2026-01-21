@@ -402,9 +402,8 @@ class TestFleetTaskEnvStep:
         action = '<tool_call>{"name": "search", "arguments": {"q": "test"}}</tool_call>'
         result = env.step(action)
 
-        # Verify step was called with correct action
+        # Verify step was called
         mock_run_async.assert_called_once()
-        call_args = mock_run_async.call_args[0][0]  # First positional arg (the coroutine)
 
         # Verify result
         assert result["done"] is False
