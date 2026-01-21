@@ -1,10 +1,6 @@
 name: "OpenEnv Fleet Training (SkyPilot)"
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'skyrl-train/tasks/**'
   workflow_dispatch:
     inputs:
       modality:
