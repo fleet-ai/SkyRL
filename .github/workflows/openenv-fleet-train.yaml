@@ -98,7 +98,7 @@ jobs:
           token: ${{ secrets.SLACK_BOT_TOKEN }}
           payload: |
             {
-              "channel": "#fleet-training",
+              "channel": "#fleet-training-runs",
               "text": "OpenEnv Training Job ${{ job.status == 'success' && '✅ Launched' || '❌ Failed' }}",
               "blocks": [
                 {
