@@ -2,8 +2,7 @@
 
 import json
 import os
-import tempfile
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from omegaconf import DictConfig
@@ -128,7 +127,7 @@ class TestParseToolCall:
 
     def test_multiline_json(self):
         """Test parsing multiline JSON in tool call."""
-        action = '''<tool_call>
+        action = """<tool_call>
 {
     "name": "complex_tool",
     "arguments": {
@@ -136,7 +135,7 @@ class TestParseToolCall:
         "nested": {"key": "value"}
     }
 }
-</tool_call>'''
+</tool_call>"""
         result = parse_tool_call(action)
 
         assert result is not None
@@ -212,9 +211,7 @@ class TestFleetTaskEnvInit:
     def test_successful_init(self, tmp_path):
         """Test successful initialization."""
         tasks_file = tmp_path / "tasks.json"
-        tasks_file.write_text(json.dumps([
-            {"key": "my-task", "prompt": "Do something", "env_id": "test-env"}
-        ]))
+        tasks_file.write_text(json.dumps([{"key": "my-task", "prompt": "Do something", "env_id": "test-env"}]))
 
         env_config = DictConfig({"tasks_file": str(tasks_file)})
         env = FleetTaskEnv(env_config, extras={"task_key": "my-task"})
@@ -257,9 +254,7 @@ class TestFleetTaskEnvMetrics:
     def test_get_metrics(self, tmp_path):
         """Test get_metrics returns correct structure."""
         tasks_file = tmp_path / "tasks.json"
-        tasks_file.write_text(json.dumps([
-            {"key": "task-1", "prompt": "Test", "env_id": "github"}
-        ]))
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "github"}]))
 
         env_config = DictConfig({"tasks_file": str(tasks_file)})
         env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
@@ -304,9 +299,7 @@ class TestFleetTaskEnvInitMethod:
     def test_init_creates_fleet_env(self, mock_fleet_env_class, tmp_path):
         """Test that init() creates and resets the Fleet environment."""
         tasks_file = tmp_path / "tasks.json"
-        tasks_file.write_text(json.dumps([
-            {"key": "task-1", "prompt": "Search for flights", "env_id": "booking"}
-        ]))
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Search for flights", "env_id": "booking"}]))
 
         # Mock the Fleet environment
         mock_fleet_env = MagicMock()
@@ -335,9 +328,7 @@ class TestFleetTaskEnvInitMethod:
     def test_init_includes_tools_info(self, mock_fleet_env_class, tmp_path):
         """Test that init() includes tool information in prompt."""
         tasks_file = tmp_path / "tasks.json"
-        tasks_file.write_text(json.dumps([
-            {"key": "task-1", "prompt": "Do something", "env_id": "test"}
-        ]))
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Do something", "env_id": "test"}]))
 
         # Mock with tools
         mock_fleet_env = MagicMock()
@@ -378,9 +369,7 @@ class TestFleetTaskEnvStep:
     def test_step_with_tool_call(self, mock_run_async, mock_fleet_env_class, tmp_path):
         """Test step() with a valid tool call."""
         tasks_file = tmp_path / "tasks.json"
-        tasks_file.write_text(json.dumps([
-            {"key": "task-1", "prompt": "Test", "env_id": "test"}
-        ]))
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
         # Setup mocks
         mock_fleet_env = MagicMock()
@@ -417,9 +406,7 @@ class TestFleetTaskEnvStep:
     def test_step_with_done_signal(self, mock_run_async, mock_fleet_env_class, tmp_path):
         """Test step() when agent signals done."""
         tasks_file = tmp_path / "tasks.json"
-        tasks_file.write_text(json.dumps([
-            {"key": "task-1", "prompt": "Test", "env_id": "test"}
-        ]))
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
         mock_fleet_env = MagicMock()
         mock_fleet_env.reset.return_value = {"tools": [], "observation": {}}
@@ -448,9 +435,7 @@ class TestFleetTaskEnvStep:
     def test_step_max_turns(self, mock_run_async, mock_fleet_env_class, tmp_path):
         """Test step() when max turns reached."""
         tasks_file = tmp_path / "tasks.json"
-        tasks_file.write_text(json.dumps([
-            {"key": "task-1", "prompt": "Test", "env_id": "test"}
-        ]))
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
         mock_fleet_env = MagicMock()
         mock_fleet_env.reset.return_value = {"tools": [], "observation": {}}
@@ -484,9 +469,7 @@ class TestFleetTaskEnvStep:
     def test_step_no_tool_call(self, mock_run_async, mock_fleet_env_class, tmp_path):
         """Test step() when no tool call is found."""
         tasks_file = tmp_path / "tasks.json"
-        tasks_file.write_text(json.dumps([
-            {"key": "task-1", "prompt": "Test", "env_id": "test"}
-        ]))
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
         mock_fleet_env = MagicMock()
         mock_fleet_env.reset.return_value = {"tools": [], "observation": {}}
@@ -521,9 +504,7 @@ class TestFleetTaskEnvClose:
     def test_close(self, mock_fleet_env_class, tmp_path):
         """Test close() calls fleet_env.close()."""
         tasks_file = tmp_path / "tasks.json"
-        tasks_file.write_text(json.dumps([
-            {"key": "task-1", "prompt": "Test", "env_id": "test"}
-        ]))
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
         mock_fleet_env = MagicMock()
         mock_fleet_env.reset.return_value = {"tools": [], "observation": {}}
@@ -543,9 +524,7 @@ class TestFleetTaskEnvClose:
     def test_close_handles_error(self, mock_fleet_env_class, tmp_path, capsys):
         """Test close() handles errors gracefully."""
         tasks_file = tmp_path / "tasks.json"
-        tasks_file.write_text(json.dumps([
-            {"key": "task-1", "prompt": "Test", "env_id": "test"}
-        ]))
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
         mock_fleet_env = MagicMock()
         mock_fleet_env.reset.return_value = {"tools": [], "observation": {}}

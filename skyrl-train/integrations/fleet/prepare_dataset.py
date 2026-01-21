@@ -20,7 +20,7 @@ from datasets import Dataset
 
 def load_tasks_from_json(json_path: str) -> List[Dict[str, Any]]:
     """Load tasks from JSON file (Fleet export format)."""
-    with open(json_path, 'r') as f:
+    with open(json_path, "r") as f:
         data = json.load(f)
 
     # Handle both formats: array or {"tasks": [...]}
@@ -62,11 +62,7 @@ def prepare_fleet_dataset(
 
     # Filter by env_key if specified
     if env_filter:
-        tasks = [
-            t for t in tasks
-            if t.get("env_key") == env_filter
-            or t.get("env_id") == env_filter
-        ]
+        tasks = [t for t in tasks if t.get("env_key") == env_filter or t.get("env_id") == env_filter]
         print(f"After env filter ({env_filter}): {len(tasks)} tasks")
 
     # Limit tasks if specified
@@ -88,18 +84,21 @@ def prepare_fleet_dataset(
             print(f"Skipping task with missing key or prompt: {task.get('key', 'unknown')}")
             continue
 
-        records.append({
-            # Required fields for SkyRL
-            "prompt": [{"role": "user", "content": prompt}],
-            "env_class": "fleet_task",  # This tells SkyRL to use FleetTaskEnv
-            # Task identification (passed as env_extras)
-            "task_key": task_key,
-        })
+        records.append(
+            {
+                # Required fields for SkyRL
+                "prompt": [{"role": "user", "content": prompt}],
+                "env_class": "fleet_task",  # This tells SkyRL to use FleetTaskEnv
+                # Task identification (passed as env_extras)
+                "task_key": task_key,
+            }
+        )
 
     print(f"Prepared {len(records)} records for dataset")
 
     # Shuffle records for better train/val split
     import random
+
     random.seed(42)
     random.shuffle(records)
 

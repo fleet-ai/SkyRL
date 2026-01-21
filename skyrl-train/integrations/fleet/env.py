@@ -35,7 +35,7 @@ def _run_async(coro):
 def load_tasks_from_json(tasks_file: str) -> Dict[str, Dict[str, Any]]:
     """Load tasks from JSON file with caching."""
     if tasks_file not in _TASK_CACHE:
-        with open(tasks_file, 'r') as f:
+        with open(tasks_file, "r") as f:
             data = json.load(f)
 
         # Handle both formats: array or {"tasks": [...]}
@@ -47,9 +47,7 @@ def load_tasks_from_json(tasks_file: str) -> Dict[str, Dict[str, Any]]:
             raise ValueError("Invalid JSON format: expected array or object with 'tasks' key")
 
         # Index by task_key
-        _TASK_CACHE[tasks_file] = {
-            t.get("key") or t.get("task_key"): t for t in tasks
-        }
+        _TASK_CACHE[tasks_file] = {t.get("key") or t.get("task_key"): t for t in tasks}
 
     return _TASK_CACHE[tasks_file]
 
@@ -153,7 +151,9 @@ class FleetTaskEnv(BaseTextEnv):
         if tools:
             tool_names = [t.get("function", {}).get("name", "unknown") for t in tools]
             tools_info = f"\n\nAvailable tools: {', '.join(tool_names)}\n"
-            tools_info += "To use a tool, respond with: <tool_call>{\"name\": \"tool_name\", \"arguments\": {...}}</tool_call>\n"
+            tools_info += (
+                'To use a tool, respond with: <tool_call>{"name": "tool_name", "arguments": {...}}</tool_call>\n'
+            )
             tools_info += "When you have completed the task, include <done> in your response."
         else:
             tools_info = ""
@@ -225,7 +225,7 @@ class FleetTaskEnv(BaseTextEnv):
         elif agent_done:
             obs_content = "Task marked as complete."
         elif not tool_call:
-            obs_content = "No tool call found. Use <tool_call>{\"name\": \"...\", \"arguments\": {...}}</tool_call> format."
+            obs_content = 'No tool call found. Use <tool_call>{"name": "...", "arguments": {...}}</tool_call> format.'
         else:
             obs_content = "Action executed."
 
