@@ -78,9 +78,16 @@ jobs:
           MODALITY="${{ inputs.modality }}"
           ENV_NAME="${{ inputs.env_name }}"
 
+          # Select WandB key based on modality
+          if [ "$MODALITY" == "tool_use" ]; then
+            WANDB_KEY="${{ secrets.WANDB_API_KEY_TOOL_USE }}"
+          else
+            WANDB_KEY="${{ secrets.WANDB_API_KEY_COMPUTER_USE }}"
+          fi
+
           sky jobs launch skyrl-train/tasks/openenv-fleet-grpo.yaml \
             --name "${{ steps.job_name.outputs.name }}" \
-            --env WANDB_API_KEY="${{ secrets.WANDB_API_KEY }}" \
+            --env WANDB_API_KEY="$WANDB_KEY" \
             --env FLEET_API_KEY="${{ secrets.FLEET_API_KEY }}" \
             --env MODALITY="$MODALITY" \
             --env ENV_NAME="$ENV_NAME" \
