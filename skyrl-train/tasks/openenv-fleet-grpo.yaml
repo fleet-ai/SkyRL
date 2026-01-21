@@ -20,7 +20,8 @@ num_nodes: 1
 
 workdir:
   url: https://github.com/fleet-ai/SkyRL.git
-  ref: main
+  # NOTE: Update to 'main' after PR is merged
+  ref: fleet-integration
 
 secrets:
   WANDB_API_KEY: null
@@ -47,7 +48,15 @@ setup: |
   uv sync --extra vllm
   uv pip install wandb
 
-  # Install OpenEnv with Fleet support
+  # Clone OpenEnv for namespace package access (envs directory)
+  # The envs/ directory is a namespace package without __init__.py,
+  # so we need to add it to PYTHONPATH rather than pip install
+  OPENENV_DIR="$HOME/OpenEnv"
+  if [ ! -d "$OPENENV_DIR" ]; then
+    git clone https://github.com/anthropics/OpenEnv.git "$OPENENV_DIR"
+  fi
+
+  # Install OpenEnv dependencies (fleet extras)
   uv pip install "openenv[fleet]@git+https://github.com/anthropics/OpenEnv.git"
 
   # Export tasks from Fleet API to JSON
@@ -115,6 +124,9 @@ run: |
   mkdir -p "$TMP_DIR"
   export TMPDIR="$TMP_DIR"
 
+  # Add OpenEnv's src directory to PYTHONPATH for namespace package access
+  export PYTHONPATH="$HOME/OpenEnv/src:${PYTHONPATH:-}"
+
   TASKS_FILE="$HOME/data/fleet/tasks_${MODALITY}.json"
   DATA_DIR="$HOME/data/fleet/${MODALITY}"
 
@@ -138,8 +150,8 @@ run: |
   TOTAL_GPUS=$SKYPILOT_NUM_GPUS_PER_NODE
 
   # Run GRPO training with Fleet task integration
+  PYTHONPATH="$HOME/OpenEnv/src:${PYTHONPATH:-}" \
   uv run --isolated --extra "$INFERENCE_BACKEND" \
-    --with "openenv[fleet]@git+https://github.com/anthropics/OpenEnv.git" \
     --with "litellm>=1.75.5" \
     -m integrations.fleet.entrypoints.main_fleet \
     data.train_data="['${DATA_DIR}/train.parquet']" \
