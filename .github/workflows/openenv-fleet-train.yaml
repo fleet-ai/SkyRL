@@ -33,6 +33,10 @@ env:
 jobs:
   launch-training:
     runs-on: ubuntu-latest
+    env:
+      # Make both keys available as env vars for bash selection
+      WANDB_KEY_TOOL_USE: ${{ secrets.WANDB_API_KEY_TOOL_USE }}
+      WANDB_KEY_COMPUTER_USE: ${{ secrets.WANDB_API_KEY_COMPUTER_USE }}
 
     steps:
       - name: Checkout
@@ -80,9 +84,15 @@ jobs:
 
           # Select WandB key based on modality
           if [ "$MODALITY" == "tool_use" ]; then
-            WANDB_KEY="${{ secrets.WANDB_API_KEY_TOOL_USE }}"
+            WANDB_KEY="$WANDB_KEY_TOOL_USE"
           else
-            WANDB_KEY="${{ secrets.WANDB_API_KEY_COMPUTER_USE }}"
+            WANDB_KEY="$WANDB_KEY_COMPUTER_USE"
+          fi
+
+          # Validate key is set
+          if [ -z "$WANDB_KEY" ]; then
+            echo "ERROR: WANDB_API_KEY_${MODALITY^^} secret is not set!"
+            exit 1
           fi
 
           sky jobs launch skyrl-train/tasks/openenv-fleet-grpo.yaml \
@@ -97,8 +107,8 @@ jobs:
           JOB_ID=$(grep -oP 'Job submitted, ID: \K\d+' /tmp/launch_output.txt || echo "pending")
           echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
 
-      - name: Notify Slack
-        if: always()
+      - name: Notify Slack - Success
+        if: success()
         uses: slackapi/slack-github-action@v2.0.0
         with:
           method: chat.postMessage
@@ -106,14 +116,11 @@ jobs:
           payload: |
             {
               "channel": "#fleet-training-runs",
-              "text": "OpenEnv Training Job ${{ job.status == 'success' && '✅ Launched' || '❌ Failed' }}",
+              "text": "🚀 OpenEnv Training Job Launched",
               "blocks": [
                 {
                   "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "${{ job.status == 'success' && '🚀 OpenEnv Training Launched' || '❌ Training Launch Failed' }}"
-                  }
+                  "text": { "type": "plain_text", "text": "🚀 OpenEnv Training Launched" }
                 },
                 {
                   "type": "section",
@@ -126,10 +133,7 @@ jobs:
                 },
                 {
                   "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Monitor:*\n```sky jobs logs ${{ steps.launch.outputs.job_id }}```"
-                  }
+                  "text": { "type": "mrkdwn", "text": "*Monitor:*\n```sky jobs logs ${{ steps.launch.outputs.job_id }}```" }
                 },
                 {
                   "type": "context",
@@ -140,9 +144,45 @@ jobs:
               ]
             }
 
+      - name: Notify Slack - Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v2.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            {
+              "channel": "#fleet-training-runs",
+              "text": "❌ OpenEnv Training Job Failed",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": { "type": "plain_text", "text": "❌ Training Launch Failed" }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    { "type": "mrkdwn", "text": "*Modality:*\n`${{ inputs.modality }}`" },
+                    { "type": "mrkdwn", "text": "*Environment:*\n`${{ inputs.env_name }}`" }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": { "type": "mrkdwn", "text": "*Check logs:*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Logs>" }
+                },
+                {
+                  "type": "context",
+                  "elements": [
+                    { "type": "mrkdwn", "text": "Triggered by: ${{ github.actor }}" }
+                  ]
+                }
+              ]
+            }
+
       - name: Summary
+        if: always()
         run: |
-          echo "## Training Job Launched" >> $GITHUB_STEP_SUMMARY
+          echo "## Training Job ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
