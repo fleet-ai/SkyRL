@@ -14,10 +14,22 @@ mock_fleet_module = MagicMock()
 mock_fleet_module.Fleet = MagicMock()
 sys.modules["fleet"] = mock_fleet_module
 
+
+# Create a real BaseTextEnvStepOutput class for tests (instead of MagicMock)
+class MockBaseTextEnvStepOutput:
+    """Mock version of BaseTextEnvStepOutput that holds actual values."""
+
+    def __init__(self, observations, reward, done, metadata=None):
+        self.observations = observations
+        self.reward = reward
+        self.done = done
+        self.metadata = metadata or {}
+
+
 # Mock skyrl_gym base classes
 mock_base_text_env = MagicMock()
 mock_base_text_env.BaseTextEnv = object  # Use object as base class for tests
-mock_base_text_env.BaseTextEnvStepOutput = MagicMock()
+mock_base_text_env.BaseTextEnvStepOutput = MockBaseTextEnvStepOutput
 mock_base_text_env.ConversationType = list
 sys.modules["skyrl_gym"] = MagicMock()
 sys.modules["skyrl_gym.envs"] = MagicMock()
