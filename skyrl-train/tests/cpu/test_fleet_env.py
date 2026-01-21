@@ -285,10 +285,14 @@ class TestFleetTaskEnvInit:
     def test_task_not_found_shows_available_keys(self, tmp_path):
         """Test that error message shows available task keys."""
         tasks_file = tmp_path / "tasks.json"
-        tasks_file.write_text(json.dumps([
-            {"key": "task-1", "prompt": "Test1"},
-            {"key": "task-2", "prompt": "Test2"},
-        ]))
+        tasks_file.write_text(
+            json.dumps(
+                [
+                    {"key": "task-1", "prompt": "Test1"},
+                    {"key": "task-2", "prompt": "Test2"},
+                ]
+            )
+        )
 
         env_config = DictConfig({"tasks_file": str(tasks_file)})
 

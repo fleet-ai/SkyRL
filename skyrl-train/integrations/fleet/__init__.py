@@ -10,5 +10,6 @@ def __getattr__(name: str):
     """Lazy import to avoid import errors when dependencies are not installed."""
     if name == "FleetTaskEnv":
         from integrations.fleet.env import FleetTaskEnv
+
         return FleetTaskEnv
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

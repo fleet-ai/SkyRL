@@ -16,17 +16,13 @@ from omegaconf import DictConfig
 try:
     from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput, ConversationType
 except ImportError as e:
-    raise ImportError(
-        "skyrl_gym is required. Make sure you're running within the SkyRL environment."
-    ) from e
+    raise ImportError("skyrl_gym is required. Make sure you're running within the SkyRL environment.") from e
 
 # Import Fleet SDK
 try:
     from fleet import Fleet
 except ImportError as e:
-    raise ImportError(
-        "Fleet SDK is required. Install with: pip install fleet-python"
-    ) from e
+    raise ImportError("Fleet SDK is required. Install with: pip install fleet-python") from e
 
 
 # Global task cache to avoid reloading JSON for each env instance
@@ -64,17 +60,13 @@ def load_tasks_from_json(tasks_file: str) -> Dict[str, Any]:
         elif isinstance(data, dict) and "tasks" in data:
             tasks = data["tasks"]
         else:
-            raise ValueError(
-                f"Invalid JSON format in {tasks_file}: expected array or object with 'tasks' key"
-            )
+            raise ValueError(f"Invalid JSON format in {tasks_file}: expected array or object with 'tasks' key")
 
         if not tasks:
             raise ValueError(f"No tasks found in {tasks_file}")
 
         # Index by task_key
-        _TASK_CACHE[tasks_file] = {
-            t.get("key") or t.get("task_key"): t for t in tasks
-        }
+        _TASK_CACHE[tasks_file] = {t.get("key") or t.get("task_key"): t for t in tasks}
 
     return _TASK_CACHE[tasks_file]
 
@@ -142,8 +134,7 @@ class FleetTaskEnv(BaseTextEnv):
         if not self.task_config:
             available_keys = list(tasks.keys())[:5]
             raise ValueError(
-                f"Task '{self.task_key}' not found in {self.tasks_file}. "
-                f"Available keys (first 5): {available_keys}"
+                f"Task '{self.task_key}' not found in {self.tasks_file}. " f"Available keys (first 5): {available_keys}"
             )
 
         # API key
@@ -193,7 +184,7 @@ class FleetTaskEnv(BaseTextEnv):
 
         # Get tools from Fleet environment
         try:
-            self.tools = self.fleet_env.mcp.list_tools() if hasattr(self.fleet_env, 'mcp') else []
+            self.tools = self.fleet_env.mcp.list_tools() if hasattr(self.fleet_env, "mcp") else []
         except Exception:
             self.tools = []
 
@@ -247,12 +238,9 @@ class FleetTaskEnv(BaseTextEnv):
         reward = 0.0
 
         # Execute tool call if present
-        if tool_call and self.fleet_env and hasattr(self.fleet_env, 'mcp'):
+        if tool_call and self.fleet_env and hasattr(self.fleet_env, "mcp"):
             try:
-                result = self.fleet_env.mcp.call_tool(
-                    tool_call["name"],
-                    tool_call.get("arguments", {})
-                )
+                result = self.fleet_env.mcp.call_tool(tool_call["name"], tool_call.get("arguments", {}))
                 tool_result = result
             except Exception as e:
                 error = str(e)
@@ -317,7 +305,7 @@ class FleetTaskEnv(BaseTextEnv):
         """Close the Fleet environment and cleanup resources."""
         if self.fleet_env:
             try:
-                if hasattr(self.fleet_env, 'close'):
+                if hasattr(self.fleet_env, "close"):
                     self.fleet_env.close()
             except Exception as e:
                 print(f"Warning: Failed to close Fleet environment: {e}")
