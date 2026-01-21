@@ -1,48 +1,53 @@
-"""Unit tests for Fleet task environment."""
+"""Unit tests for Fleet task environment.
+
+These tests require fleet-python and skyrl_gym to be installed.
+They are skipped in CI where these dependencies aren't available.
+"""
 
 import json
 import os
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 from omegaconf import DictConfig
 
-# Mock external modules before importing env to avoid ImportError in CI
-# Mock fleet SDK
-mock_fleet_module = MagicMock()
-mock_fleet_module.Fleet = MagicMock()
-sys.modules["fleet"] = mock_fleet_module
+# Try to import Fleet dependencies - skip all tests if not available
+try:
+    from fleet import Fleet
 
+    FLEET_AVAILABLE = True
+except ImportError:
+    FLEET_AVAILABLE = False
 
-# Create a real BaseTextEnvStepOutput class for tests (instead of MagicMock)
-class MockBaseTextEnvStepOutput:
-    """Mock version of BaseTextEnvStepOutput that holds actual values."""
+try:
+    from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput
 
-    def __init__(self, observations, reward, done, metadata=None):
-        self.observations = observations
-        self.reward = reward
-        self.done = done
-        self.metadata = metadata or {}
+    SKYRL_GYM_AVAILABLE = True
+except ImportError:
+    SKYRL_GYM_AVAILABLE = False
 
-
-# Mock skyrl_gym base classes
-mock_base_text_env = MagicMock()
-mock_base_text_env.BaseTextEnv = object  # Use object as base class for tests
-mock_base_text_env.BaseTextEnvStepOutput = MockBaseTextEnvStepOutput
-mock_base_text_env.ConversationType = list
-sys.modules["skyrl_gym"] = MagicMock()
-sys.modules["skyrl_gym.envs"] = MagicMock()
-sys.modules["skyrl_gym.envs.base_text_env"] = mock_base_text_env
-
-# ruff: noqa: E402
-from integrations.fleet.env import (
-    load_tasks_from_json,
-    parse_tool_call,
-    FleetTaskEnv,
-    clear_caches,
-    get_fleet_client,
+# Skip all tests in this module if dependencies aren't available
+pytestmark = pytest.mark.skipif(
+    not (FLEET_AVAILABLE and SKYRL_GYM_AVAILABLE),
+    reason="Fleet SDK or skyrl_gym not installed",
 )
+
+# Only import env module if dependencies are available
+if FLEET_AVAILABLE and SKYRL_GYM_AVAILABLE:
+    from integrations.fleet.env import (
+        load_tasks_from_json,
+        parse_tool_call,
+        FleetTaskEnv,
+        clear_caches,
+        get_fleet_client,
+    )
+else:
+    # Provide dummy implementations for type checking
+    load_tasks_from_json = None
+    parse_tool_call = None
+    FleetTaskEnv = None
+    clear_caches = None
+    get_fleet_client = None
 
 
 class TestLoadTasksFromJson:
