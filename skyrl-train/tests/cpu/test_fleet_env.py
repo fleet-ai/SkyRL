@@ -11,20 +11,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from omegaconf import DictConfig
 
-# Try to import Fleet dependencies - skip all tests if not available
-try:
-    from fleet import Fleet
+# Check if dependencies are available using importlib
+import importlib.util
 
-    FLEET_AVAILABLE = True
-except ImportError:
-    FLEET_AVAILABLE = False
-
-try:
-    from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput
-
-    SKYRL_GYM_AVAILABLE = True
-except ImportError:
-    SKYRL_GYM_AVAILABLE = False
+FLEET_AVAILABLE = importlib.util.find_spec("fleet") is not None
+SKYRL_GYM_AVAILABLE = importlib.util.find_spec("skyrl_gym") is not None
 
 # Skip all tests in this module if dependencies aren't available
 pytestmark = pytest.mark.skipif(
