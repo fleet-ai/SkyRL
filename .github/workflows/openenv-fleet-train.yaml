@@ -4,9 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'skyrl-train/integrations/openenv/**'
       - 'skyrl-train/tasks/**'
-      - 'skyrl-gym/**'
   workflow_dispatch:
     inputs:
       modality:
