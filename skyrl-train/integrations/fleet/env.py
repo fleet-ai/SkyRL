@@ -21,6 +21,17 @@ from envs.fleet_env import FleetTaskEnv as OpenEnvFleetTaskEnv
 _TASK_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
+def _run_async(coro):
+    """Run async coroutine, handling both sync and async contexts."""
+    try:
+        loop = asyncio.get_running_loop()
+        # Already in async context - this shouldn't happen in SkyRL's sync step()
+        raise RuntimeError("Cannot call sync step() from async context")
+    except RuntimeError:
+        # No running loop, safe to use asyncio.run()
+        return asyncio.run(coro)
+
+
 def load_tasks_from_json(tasks_file: str) -> Dict[str, Dict[str, Any]]:
     """Load tasks from JSON file with caching."""
     if tasks_file not in _TASK_CACHE:
@@ -47,37 +58,18 @@ def parse_tool_call(action: str) -> Optional[Dict[str, Any]]:
     """
     Parse tool call from LLM response.
 
-    Supports formats:
-    1. <tool_call>{"name": "...", "arguments": {...}}</tool_call>
-    2. <function_call>{"name": "...", "arguments": {...}}</function_call>
-    3. JSON object with tool/name and arguments/params keys
+    Supports tag-based formats:
+    - <tool_call>{"name": "...", "arguments": {...}}</tool_call>
+    - <function_call>{"name": "...", "arguments": {...}}</function_call>
+
+    Returns dict with "name" and "arguments" keys, or None if not found.
     """
-    # Try <tool_call> format
-    match = re.search(r"<tool_call>(.*?)</tool_call>", action, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            pass
-
-    # Try <function_call> format
-    match = re.search(r"<function_call>(.*?)</function_call>", action, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            pass
-
-    # Try to find JSON object with name/tool and arguments/params
-    json_patterns = [
-        r'\{[^{}]*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^{}]*\}[^{}]*\}',
-        r'\{[^{}]*"tool"\s*:\s*"[^"]+"\s*,\s*"params"\s*:\s*\{[^{}]*\}[^{}]*\}',
-    ]
-    for pattern in json_patterns:
-        match = re.search(pattern, action, re.DOTALL)
+    # Try common tag formats
+    for tag in ["tool_call", "function_call"]:
+        match = re.search(rf"<{tag}>(.*?)</{tag}>", action, re.DOTALL)
         if match:
             try:
-                parsed = json.loads(match.group(0))
+                parsed = json.loads(match.group(1).strip())
                 # Normalize keys
                 name = parsed.get("name") or parsed.get("tool")
                 args = parsed.get("arguments") or parsed.get("params", {})
@@ -129,9 +121,7 @@ class FleetTaskEnv(BaseTextEnv):
 
         # Environment state (initialized on init())
         self.fleet_env: Optional[OpenEnvFleetTaskEnv] = None
-        self.tools_cache: List[Dict] = []
         self.chat_history: ConversationType = []
-        self._verified = False
 
     def init(self, prompt: ConversationType) -> Tuple[ConversationType, Dict[str, Any]]:
         """
@@ -152,17 +142,16 @@ class FleetTaskEnv(BaseTextEnv):
 
         # Reset state
         self.turns = 0
-        self._verified = False
 
         # Get tools from observation
-        self.tools_cache = obs.get("tools", [])
+        tools = obs.get("tools", [])
 
         # Build initial prompt with task instruction
         task_prompt = self.task_config.get("prompt", "")
 
         # Add tool information if available
-        if self.tools_cache:
-            tool_names = [t.get("function", {}).get("name", "unknown") for t in self.tools_cache]
+        if tools:
+            tool_names = [t.get("function", {}).get("name", "unknown") for t in tools]
             tools_info = f"\n\nAvailable tools: {', '.join(tool_names)}\n"
             tools_info += "To use a tool, respond with: <tool_call>{\"name\": \"tool_name\", \"arguments\": {...}}</tool_call>\n"
             tools_info += "When you have completed the task, include <done> in your response."
@@ -176,7 +165,7 @@ class FleetTaskEnv(BaseTextEnv):
         metadata = {
             "task_key": self.task_key,
             "env_key": self.task_config.get("env_key") or self.task_config.get("env_id"),
-            "tools": self.tools_cache,
+            "tools": tools,
             "modality": self.task_config.get("task_modality", "tool_use"),
         }
 
@@ -207,15 +196,7 @@ class FleetTaskEnv(BaseTextEnv):
             fleet_action["params"] = tool_call.get("arguments", {})
 
         # Execute step via OpenEnv's FleetTaskEnv
-        try:
-            obs, reward, done, info = asyncio.get_event_loop().run_until_complete(
-                self.fleet_env.step_async(fleet_action)
-            )
-        except RuntimeError:
-            # No event loop running, create one
-            obs, reward, done, info = asyncio.run(
-                self.fleet_env.step_async(fleet_action)
-            )
+        obs, reward, done, info = _run_async(self.fleet_env.step_async(fleet_action))
 
         # Extract tool result from observation
         tool_result = obs.get("observation")
