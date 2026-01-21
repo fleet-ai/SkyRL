@@ -11,7 +11,8 @@ from integrations.fleet.env import (
     load_tasks_from_json,
     parse_tool_call,
     FleetTaskEnv,
-    _TASK_CACHE,
+    clear_caches,
+    get_fleet_client,
 )
 
 
@@ -20,7 +21,7 @@ class TestLoadTasksFromJson:
 
     def setup_method(self):
         """Clear cache before each test."""
-        _TASK_CACHE.clear()
+        clear_caches()
 
     def test_load_array_format(self, tmp_path):
         """Test loading tasks from array format JSON."""
@@ -73,12 +74,25 @@ class TestLoadTasksFromJson:
         assert "task-1" in result2
         assert "task-new" not in result2
 
+    def test_file_not_found(self):
+        """Test error when file doesn't exist."""
+        with pytest.raises(FileNotFoundError, match="Tasks file not found"):
+            load_tasks_from_json("/nonexistent/path/tasks.json")
+
     def test_invalid_format(self, tmp_path):
         """Test error on invalid JSON format."""
         tasks_file = tmp_path / "tasks.json"
         tasks_file.write_text(json.dumps({"invalid": "format"}))
 
         with pytest.raises(ValueError, match="Invalid JSON format"):
+            load_tasks_from_json(str(tasks_file))
+
+    def test_empty_tasks(self, tmp_path):
+        """Test error when tasks array is empty."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(json.dumps([]))
+
+        with pytest.raises(ValueError, match="No tasks found"):
             load_tasks_from_json(str(tasks_file))
 
     def test_key_priority(self, tmp_path):
@@ -93,6 +107,17 @@ class TestLoadTasksFromJson:
 
         assert "primary-key" in result
         assert "secondary-key" not in result
+
+    def test_path_expansion(self, tmp_path):
+        """Test that ~ is expanded in paths."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(json.dumps([{"key": "test", "prompt": "Test"}]))
+
+        # Create symlink in home
+        with patch("os.path.expanduser") as mock_expand:
+            mock_expand.return_value = str(tasks_file)
+            result = load_tasks_from_json("~/tasks.json")
+            assert "test" in result
 
 
 class TestParseToolCall:
@@ -178,7 +203,7 @@ class TestFleetTaskEnvInit:
 
     def setup_method(self):
         """Clear cache before each test."""
-        _TASK_CACHE.clear()
+        clear_caches()
 
     def test_missing_task_key(self, tmp_path):
         """Test error when task_key is not provided."""
@@ -207,6 +232,19 @@ class TestFleetTaskEnvInit:
         with pytest.raises(ValueError, match="Task 'missing-task' not found"):
             FleetTaskEnv(env_config, extras={"task_key": "missing-task"})
 
+    def test_missing_api_key(self, tmp_path):
+        """Test error when FLEET_API_KEY is not set."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(json.dumps([{"key": "task", "prompt": "Test"}]))
+
+        env_config = DictConfig({"tasks_file": str(tasks_file)})
+
+        with patch.dict(os.environ, {}, clear=True):
+            # Remove FLEET_API_KEY if present
+            os.environ.pop("FLEET_API_KEY", None)
+            with pytest.raises(ValueError, match="FLEET_API_KEY must be set"):
+                FleetTaskEnv(env_config, extras={"task_key": "task"})
+
     @patch.dict(os.environ, {"FLEET_API_KEY": "test-api-key"})
     def test_successful_init(self, tmp_path):
         """Test successful initialization."""
@@ -232,6 +270,7 @@ class TestFleetTaskEnvInit:
 
         assert env.api_key == "config-key"
 
+    @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
     def test_max_turns_from_extras(self, tmp_path):
         """Test that max_turns can be set via extras."""
         tasks_file = tmp_path / "tasks.json"
@@ -242,13 +281,29 @@ class TestFleetTaskEnvInit:
 
         assert env.max_turns == 10
 
+    @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
+    def test_task_not_found_shows_available_keys(self, tmp_path):
+        """Test that error message shows available task keys."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(json.dumps([
+            {"key": "task-1", "prompt": "Test1"},
+            {"key": "task-2", "prompt": "Test2"},
+        ]))
+
+        env_config = DictConfig({"tasks_file": str(tasks_file)})
+
+        with pytest.raises(ValueError) as exc_info:
+            FleetTaskEnv(env_config, extras={"task_key": "nonexistent"})
+
+        assert "Available keys" in str(exc_info.value)
+
 
 class TestFleetTaskEnvMetrics:
     """Tests for FleetTaskEnv metrics methods."""
 
     def setup_method(self):
         """Clear cache before each test."""
-        _TASK_CACHE.clear()
+        clear_caches()
 
     @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
     def test_get_metrics(self, tmp_path):
@@ -292,19 +347,25 @@ class TestFleetTaskEnvInitMethod:
 
     def setup_method(self):
         """Clear cache before each test."""
-        _TASK_CACHE.clear()
+        clear_caches()
 
-    @patch("integrations.fleet.env.OpenEnvFleetTaskEnv")
+    @patch("integrations.fleet.env.get_fleet_client")
     @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
-    def test_init_creates_fleet_env(self, mock_fleet_env_class, tmp_path):
-        """Test that init() creates and resets the Fleet environment."""
+    def test_init_creates_fleet_env(self, mock_get_client, tmp_path):
+        """Test that init() creates the Fleet environment via task.make()."""
         tasks_file = tmp_path / "tasks.json"
         tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Search for flights", "env_id": "booking"}]))
 
-        # Mock the Fleet environment
-        mock_fleet_env = MagicMock()
-        mock_fleet_env.reset.return_value = {"tools": [], "observation": {}}
-        mock_fleet_env_class.return_value = mock_fleet_env
+        # Mock Fleet client and task
+        mock_task = MagicMock()
+        mock_task.key = "task-1"
+        mock_env = MagicMock()
+        mock_env.mcp.list_tools.return_value = []
+        mock_task.make.return_value = mock_env
+
+        mock_client = MagicMock()
+        mock_client.load_tasks.return_value = [mock_task]
+        mock_get_client.return_value = mock_client
 
         env_config = DictConfig({"tasks_file": str(tasks_file)})
         env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
@@ -312,9 +373,9 @@ class TestFleetTaskEnvInitMethod:
         # Call init
         chat_history, metadata = env.init([])
 
-        # Verify Fleet env was created
-        mock_fleet_env_class.assert_called_once()
-        mock_fleet_env.reset.assert_called_once()
+        # Verify Fleet task was loaded and env was created
+        mock_client.load_tasks.assert_called_once()
+        mock_task.make.assert_called_once()
 
         # Verify return values
         assert len(chat_history) == 1
@@ -323,23 +384,26 @@ class TestFleetTaskEnvInitMethod:
         assert metadata["task_key"] == "task-1"
         assert metadata["env_key"] == "booking"
 
-    @patch("integrations.fleet.env.OpenEnvFleetTaskEnv")
+    @patch("integrations.fleet.env.get_fleet_client")
     @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
-    def test_init_includes_tools_info(self, mock_fleet_env_class, tmp_path):
+    def test_init_includes_tools_info(self, mock_get_client, tmp_path):
         """Test that init() includes tool information in prompt."""
         tasks_file = tmp_path / "tasks.json"
         tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Do something", "env_id": "test"}]))
 
         # Mock with tools
-        mock_fleet_env = MagicMock()
-        mock_fleet_env.reset.return_value = {
-            "tools": [
-                {"function": {"name": "search"}},
-                {"function": {"name": "click"}},
-            ],
-            "observation": {},
-        }
-        mock_fleet_env_class.return_value = mock_fleet_env
+        mock_task = MagicMock()
+        mock_task.key = "task-1"
+        mock_env = MagicMock()
+        mock_env.mcp.list_tools.return_value = [
+            {"name": "search"},
+            {"name": "click"},
+        ]
+        mock_task.make.return_value = mock_env
+
+        mock_client = MagicMock()
+        mock_client.load_tasks.return_value = [mock_task]
+        mock_get_client.return_value = mock_client
 
         env_config = DictConfig({"tasks_file": str(tasks_file)})
         env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
@@ -355,33 +419,74 @@ class TestFleetTaskEnvInitMethod:
         # Verify tools in metadata
         assert len(metadata["tools"]) == 2
 
+    @patch("integrations.fleet.env.get_fleet_client")
+    @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
+    def test_init_task_not_found_in_api(self, mock_get_client, tmp_path):
+        """Test error when task is in JSON but not in Fleet API."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
+
+        # Mock Fleet client with different tasks
+        mock_other_task = MagicMock()
+        mock_other_task.key = "other-task"
+
+        mock_client = MagicMock()
+        mock_client.load_tasks.return_value = [mock_other_task]
+        mock_get_client.return_value = mock_client
+
+        env_config = DictConfig({"tasks_file": str(tasks_file)})
+        env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
+
+        with pytest.raises(RuntimeError, match="Failed to load task from Fleet API"):
+            env.init([])
+
+    @patch("integrations.fleet.env.get_fleet_client")
+    @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
+    def test_init_make_fails(self, mock_get_client, tmp_path):
+        """Test error when task.make() fails."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
+
+        mock_task = MagicMock()
+        mock_task.key = "task-1"
+        mock_task.make.side_effect = Exception("Failed to provision environment")
+
+        mock_client = MagicMock()
+        mock_client.load_tasks.return_value = [mock_task]
+        mock_get_client.return_value = mock_client
+
+        env_config = DictConfig({"tasks_file": str(tasks_file)})
+        env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
+
+        with pytest.raises(RuntimeError, match="Failed to create Fleet environment"):
+            env.init([])
+
 
 class TestFleetTaskEnvStep:
     """Tests for FleetTaskEnv.step() method."""
 
     def setup_method(self):
         """Clear cache before each test."""
-        _TASK_CACHE.clear()
+        clear_caches()
 
-    @patch("integrations.fleet.env.OpenEnvFleetTaskEnv")
-    @patch("integrations.fleet.env._run_async")
+    @patch("integrations.fleet.env.get_fleet_client")
     @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
-    def test_step_with_tool_call(self, mock_run_async, mock_fleet_env_class, tmp_path):
+    def test_step_with_tool_call(self, mock_get_client, tmp_path):
         """Test step() with a valid tool call."""
         tasks_file = tmp_path / "tasks.json"
         tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
         # Setup mocks
-        mock_fleet_env = MagicMock()
-        mock_fleet_env.reset.return_value = {"tools": [], "observation": {}}
-        mock_fleet_env_class.return_value = mock_fleet_env
+        mock_task = MagicMock()
+        mock_task.key = "task-1"
+        mock_env = MagicMock()
+        mock_env.mcp.list_tools.return_value = []
+        mock_env.mcp.call_tool.return_value = "Search results: found 5 items"
+        mock_task.make.return_value = mock_env
 
-        mock_run_async.return_value = (
-            {"observation": "Search results: found 5 items"},
-            0.0,
-            False,
-            {"done_reason": None},
-        )
+        mock_client = MagicMock()
+        mock_client.load_tasks.return_value = [mock_task]
+        mock_get_client.return_value = mock_client
 
         env_config = DictConfig({"tasks_file": str(tasks_file)})
         env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
@@ -391,33 +496,32 @@ class TestFleetTaskEnvStep:
         action = '<tool_call>{"name": "search", "arguments": {"q": "test"}}</tool_call>'
         result = env.step(action)
 
-        # Verify step was called
-        mock_run_async.assert_called_once()
+        # Verify mcp.call_tool was called
+        mock_env.mcp.call_tool.assert_called_once_with("search", {"q": "test"})
 
         # Verify result
-        assert result["done"] is False
-        assert len(result["observations"]) == 1
-        assert "Search results" in result["observations"][0]["content"]
-        assert result["metadata"]["tool_call"]["name"] == "search"
+        assert result.done is False
+        assert len(result.observations) == 1
+        assert "Search results" in result.observations[0]["content"]
+        assert result.metadata["tool_call"]["name"] == "search"
 
-    @patch("integrations.fleet.env.OpenEnvFleetTaskEnv")
-    @patch("integrations.fleet.env._run_async")
+    @patch("integrations.fleet.env.get_fleet_client")
     @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
-    def test_step_with_done_signal(self, mock_run_async, mock_fleet_env_class, tmp_path):
+    def test_step_with_done_signal(self, mock_get_client, tmp_path):
         """Test step() when agent signals done."""
         tasks_file = tmp_path / "tasks.json"
         tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
-        mock_fleet_env = MagicMock()
-        mock_fleet_env.reset.return_value = {"tools": [], "observation": {}}
-        mock_fleet_env_class.return_value = mock_fleet_env
+        mock_task = MagicMock()
+        mock_task.key = "task-1"
+        mock_task.verify.return_value = 1.0  # Reward on completion
+        mock_env = MagicMock()
+        mock_env.mcp.list_tools.return_value = []
+        mock_task.make.return_value = mock_env
 
-        mock_run_async.return_value = (
-            {"observation": {}},
-            1.0,  # Reward on completion
-            True,
-            {"done_reason": "agent_done"},
-        )
+        mock_client = MagicMock()
+        mock_client.load_tasks.return_value = [mock_task]
+        mock_get_client.return_value = mock_client
 
         env_config = DictConfig({"tasks_file": str(tasks_file)})
         env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
@@ -426,27 +530,27 @@ class TestFleetTaskEnvStep:
         # Step with done signal
         result = env.step("Task completed! <done>")
 
-        assert result["done"] is True
-        assert result["reward"] == 1.0
+        assert result.done is True
+        assert result.reward == 1.0
+        mock_task.verify.assert_called_once_with(mock_env)
 
-    @patch("integrations.fleet.env.OpenEnvFleetTaskEnv")
-    @patch("integrations.fleet.env._run_async")
+    @patch("integrations.fleet.env.get_fleet_client")
     @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
-    def test_step_max_turns(self, mock_run_async, mock_fleet_env_class, tmp_path):
+    def test_step_max_turns(self, mock_get_client, tmp_path):
         """Test step() when max turns reached."""
         tasks_file = tmp_path / "tasks.json"
         tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
-        mock_fleet_env = MagicMock()
-        mock_fleet_env.reset.return_value = {"tools": [], "observation": {}}
-        mock_fleet_env_class.return_value = mock_fleet_env
+        mock_task = MagicMock()
+        mock_task.key = "task-1"
+        mock_task.verify.return_value = 0.0
+        mock_env = MagicMock()
+        mock_env.mcp.list_tools.return_value = []
+        mock_task.make.return_value = mock_env
 
-        mock_run_async.return_value = (
-            {"observation": {}},
-            0.0,
-            False,
-            {},
-        )
+        mock_client = MagicMock()
+        mock_client.load_tasks.return_value = [mock_task]
+        mock_get_client.return_value = mock_client
 
         env_config = DictConfig({"tasks_file": str(tasks_file)})
         env = FleetTaskEnv(env_config, extras={"task_key": "task-1", "max_turns": 2})
@@ -459,28 +563,26 @@ class TestFleetTaskEnvStep:
         # Second step (max turns)
         result = env.step("action 2")
 
-        assert result["done"] is True
-        assert result["metadata"]["done_reason"] == "max_turns"
-        assert result["observations"] == []
+        assert result.done is True
+        assert result.metadata["done_reason"] == "max_turns"
+        assert result.observations == []
 
-    @patch("integrations.fleet.env.OpenEnvFleetTaskEnv")
-    @patch("integrations.fleet.env._run_async")
+    @patch("integrations.fleet.env.get_fleet_client")
     @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
-    def test_step_no_tool_call(self, mock_run_async, mock_fleet_env_class, tmp_path):
+    def test_step_no_tool_call(self, mock_get_client, tmp_path):
         """Test step() when no tool call is found."""
         tasks_file = tmp_path / "tasks.json"
         tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
-        mock_fleet_env = MagicMock()
-        mock_fleet_env.reset.return_value = {"tools": [], "observation": {}}
-        mock_fleet_env_class.return_value = mock_fleet_env
+        mock_task = MagicMock()
+        mock_task.key = "task-1"
+        mock_env = MagicMock()
+        mock_env.mcp.list_tools.return_value = []
+        mock_task.make.return_value = mock_env
 
-        mock_run_async.return_value = (
-            {"observation": None},
-            0.0,
-            False,
-            {},
-        )
+        mock_client = MagicMock()
+        mock_client.load_tasks.return_value = [mock_task]
+        mock_get_client.return_value = mock_client
 
         env_config = DictConfig({"tasks_file": str(tasks_file)})
         env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
@@ -489,7 +591,65 @@ class TestFleetTaskEnvStep:
         # Step without tool call
         result = env.step("I'm not sure what to do")
 
-        assert "No tool call found" in result["observations"][0]["content"]
+        assert "No tool call found" in result.observations[0]["content"]
+
+    @patch("integrations.fleet.env.get_fleet_client")
+    @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
+    def test_step_tool_call_error(self, mock_get_client, tmp_path):
+        """Test step() when tool call raises an error."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
+
+        mock_task = MagicMock()
+        mock_task.key = "task-1"
+        mock_env = MagicMock()
+        mock_env.mcp.list_tools.return_value = []
+        mock_env.mcp.call_tool.side_effect = Exception("Tool execution failed")
+        mock_task.make.return_value = mock_env
+
+        mock_client = MagicMock()
+        mock_client.load_tasks.return_value = [mock_task]
+        mock_get_client.return_value = mock_client
+
+        env_config = DictConfig({"tasks_file": str(tasks_file)})
+        env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
+        env.init([])
+
+        # Step with tool call that fails
+        action = '<tool_call>{"name": "broken_tool", "arguments": {}}</tool_call>'
+        result = env.step(action)
+
+        assert "Error:" in result.observations[0]["content"]
+        assert result.metadata["error"] == "Tool execution failed"
+
+    @patch("integrations.fleet.env.get_fleet_client")
+    @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
+    def test_step_verifier_error(self, mock_get_client, tmp_path):
+        """Test step() when verifier raises an error."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
+
+        mock_task = MagicMock()
+        mock_task.key = "task-1"
+        mock_task.verify.side_effect = Exception("Verifier failed")
+        mock_env = MagicMock()
+        mock_env.mcp.list_tools.return_value = []
+        mock_task.make.return_value = mock_env
+
+        mock_client = MagicMock()
+        mock_client.load_tasks.return_value = [mock_task]
+        mock_get_client.return_value = mock_client
+
+        env_config = DictConfig({"tasks_file": str(tasks_file)})
+        env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
+        env.init([])
+
+        # Step with done signal (triggers verifier)
+        result = env.step("<done>")
+
+        # Should not raise, but reward should be 0
+        assert result.reward == 0.0
+        assert result.done is True
 
 
 class TestFleetTaskEnvClose:
@@ -497,18 +657,24 @@ class TestFleetTaskEnvClose:
 
     def setup_method(self):
         """Clear cache before each test."""
-        _TASK_CACHE.clear()
+        clear_caches()
 
-    @patch("integrations.fleet.env.OpenEnvFleetTaskEnv")
+    @patch("integrations.fleet.env.get_fleet_client")
     @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
-    def test_close(self, mock_fleet_env_class, tmp_path):
+    def test_close(self, mock_get_client, tmp_path):
         """Test close() calls fleet_env.close()."""
         tasks_file = tmp_path / "tasks.json"
         tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
-        mock_fleet_env = MagicMock()
-        mock_fleet_env.reset.return_value = {"tools": [], "observation": {}}
-        mock_fleet_env_class.return_value = mock_fleet_env
+        mock_task = MagicMock()
+        mock_task.key = "task-1"
+        mock_env = MagicMock()
+        mock_env.mcp.list_tools.return_value = []
+        mock_task.make.return_value = mock_env
+
+        mock_client = MagicMock()
+        mock_client.load_tasks.return_value = [mock_task]
+        mock_get_client.return_value = mock_client
 
         env_config = DictConfig({"tasks_file": str(tasks_file)})
         env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
@@ -516,20 +682,27 @@ class TestFleetTaskEnvClose:
 
         env.close()
 
-        mock_fleet_env.close.assert_called_once()
+        mock_env.close.assert_called_once()
         assert env.fleet_env is None
+        assert env.fleet_task is None
 
-    @patch("integrations.fleet.env.OpenEnvFleetTaskEnv")
+    @patch("integrations.fleet.env.get_fleet_client")
     @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
-    def test_close_handles_error(self, mock_fleet_env_class, tmp_path, capsys):
+    def test_close_handles_error(self, mock_get_client, tmp_path, capsys):
         """Test close() handles errors gracefully."""
         tasks_file = tmp_path / "tasks.json"
         tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
-        mock_fleet_env = MagicMock()
-        mock_fleet_env.reset.return_value = {"tools": [], "observation": {}}
-        mock_fleet_env.close.side_effect = Exception("Connection error")
-        mock_fleet_env_class.return_value = mock_fleet_env
+        mock_task = MagicMock()
+        mock_task.key = "task-1"
+        mock_env = MagicMock()
+        mock_env.mcp.list_tools.return_value = []
+        mock_env.close.side_effect = Exception("Connection error")
+        mock_task.make.return_value = mock_env
+
+        mock_client = MagicMock()
+        mock_client.load_tasks.return_value = [mock_task]
+        mock_get_client.return_value = mock_client
 
         env_config = DictConfig({"tasks_file": str(tasks_file)})
         env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
@@ -542,3 +715,92 @@ class TestFleetTaskEnvClose:
         captured = capsys.readouterr()
         assert "Warning" in captured.out
         assert env.fleet_env is None
+
+    @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
+    def test_close_without_init(self, tmp_path):
+        """Test close() when init was never called."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
+
+        env_config = DictConfig({"tasks_file": str(tasks_file)})
+        env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
+
+        # Should not raise
+        env.close()
+        assert env.fleet_env is None
+
+
+class TestGetFleetClient:
+    """Tests for get_fleet_client function."""
+
+    def setup_method(self):
+        """Clear cache before each test."""
+        clear_caches()
+
+    @patch("integrations.fleet.env.Fleet")
+    @patch.dict(os.environ, {"FLEET_API_KEY": "env-key"})
+    def test_creates_client_from_env(self, mock_fleet_class):
+        """Test client is created using env var."""
+        mock_client = MagicMock()
+        mock_fleet_class.return_value = mock_client
+
+        result = get_fleet_client()
+
+        mock_fleet_class.assert_called_once_with(api_key="env-key")
+        assert result == mock_client
+
+    @patch("integrations.fleet.env.Fleet")
+    def test_creates_client_from_param(self, mock_fleet_class):
+        """Test client is created using parameter."""
+        mock_client = MagicMock()
+        mock_fleet_class.return_value = mock_client
+
+        result = get_fleet_client(api_key="param-key")
+
+        mock_fleet_class.assert_called_once_with(api_key="param-key")
+        assert result == mock_client
+
+    def test_missing_api_key(self):
+        """Test error when no API key is available."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("FLEET_API_KEY", None)
+            with pytest.raises(ValueError, match="FLEET_API_KEY environment variable not set"):
+                get_fleet_client()
+
+    @patch("integrations.fleet.env.Fleet")
+    @patch.dict(os.environ, {"FLEET_API_KEY": "env-key"})
+    def test_client_is_cached(self, mock_fleet_class):
+        """Test client singleton is reused."""
+        mock_client = MagicMock()
+        mock_fleet_class.return_value = mock_client
+
+        result1 = get_fleet_client()
+        result2 = get_fleet_client()
+
+        # Should only be created once
+        mock_fleet_class.assert_called_once()
+        assert result1 is result2
+
+
+class TestClearCaches:
+    """Tests for clear_caches function."""
+
+    @patch("integrations.fleet.env.Fleet")
+    @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
+    def test_clear_caches(self, mock_fleet_class, tmp_path):
+        """Test clear_caches resets all global state."""
+        mock_fleet_class.return_value = MagicMock()
+
+        # Create some cached state
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(json.dumps([{"key": "test", "prompt": "Test"}]))
+        load_tasks_from_json(str(tasks_file))
+        get_fleet_client()
+
+        # Clear caches
+        clear_caches()
+
+        # Verify caches are cleared (Fleet should be called again)
+        mock_fleet_class.reset_mock()
+        get_fleet_client()
+        mock_fleet_class.assert_called_once()

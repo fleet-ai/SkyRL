@@ -2,40 +2,60 @@
 Fleet Task Environment for SkyRL.
 
 This module provides a SkyRL-compatible environment wrapper for Fleet-hosted tasks.
-It wraps OpenEnv's FleetTaskEnv and adapts it to SkyRL's BaseTextEnv interface.
+It uses the Fleet SDK directly to create environments and run verifiers.
 """
 
-import asyncio
 import json
 import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from omegaconf import DictConfig
-from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput, ConversationType
 
-# Import OpenEnv's FleetTaskEnv
-from envs.fleet_env import FleetTaskEnv as OpenEnvFleetTaskEnv
+# Import SkyRL base classes
+try:
+    from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput, ConversationType
+except ImportError as e:
+    raise ImportError(
+        "skyrl_gym is required. Make sure you're running within the SkyRL environment."
+    ) from e
+
+# Import Fleet SDK
+try:
+    from fleet import Fleet
+except ImportError as e:
+    raise ImportError(
+        "Fleet SDK is required. Install with: pip install fleet-python"
+    ) from e
+
 
 # Global task cache to avoid reloading JSON for each env instance
-_TASK_CACHE: Dict[str, Dict[str, Any]] = {}
+_TASK_CACHE: Dict[str, List[Any]] = {}
+_FLEET_CLIENT: Optional[Fleet] = None
 
 
-def _run_async(coro):
-    """Run async coroutine, handling both sync and async contexts."""
-    try:
-        asyncio.get_running_loop()
-        # Already in async context - this shouldn't happen in SkyRL's sync step()
-        raise RuntimeError("Cannot call sync step() from async context")
-    except RuntimeError:
-        # No running loop, safe to use asyncio.run()
-        return asyncio.run(coro)
+def get_fleet_client(api_key: Optional[str] = None) -> Fleet:
+    """Get or create Fleet client singleton."""
+    global _FLEET_CLIENT
+    if _FLEET_CLIENT is None:
+        key = api_key or os.environ.get("FLEET_API_KEY")
+        if not key:
+            raise ValueError("FLEET_API_KEY environment variable not set")
+        _FLEET_CLIENT = Fleet(api_key=key)
+    return _FLEET_CLIENT
 
 
-def load_tasks_from_json(tasks_file: str) -> Dict[str, Dict[str, Any]]:
-    """Load tasks from JSON file with caching."""
+def load_tasks_from_json(tasks_file: str) -> Dict[str, Any]:
+    """Load tasks from JSON file with caching.
+
+    Returns a dict mapping task_key -> task_config dict.
+    """
     if tasks_file not in _TASK_CACHE:
-        with open(tasks_file, "r") as f:
+        expanded_path = os.path.expanduser(tasks_file)
+        if not os.path.exists(expanded_path):
+            raise FileNotFoundError(f"Tasks file not found: {expanded_path}")
+
+        with open(expanded_path, "r") as f:
             data = json.load(f)
 
         # Handle both formats: array or {"tasks": [...]}
@@ -44,10 +64,17 @@ def load_tasks_from_json(tasks_file: str) -> Dict[str, Dict[str, Any]]:
         elif isinstance(data, dict) and "tasks" in data:
             tasks = data["tasks"]
         else:
-            raise ValueError("Invalid JSON format: expected array or object with 'tasks' key")
+            raise ValueError(
+                f"Invalid JSON format in {tasks_file}: expected array or object with 'tasks' key"
+            )
+
+        if not tasks:
+            raise ValueError(f"No tasks found in {tasks_file}")
 
         # Index by task_key
-        _TASK_CACHE[tasks_file] = {t.get("key") or t.get("task_key"): t for t in tasks}
+        _TASK_CACHE[tasks_file] = {
+            t.get("key") or t.get("task_key"): t for t in tasks
+        }
 
     return _TASK_CACHE[tasks_file]
 
@@ -83,7 +110,8 @@ class FleetTaskEnv(BaseTextEnv):
     """
     SkyRL environment for Fleet-hosted tasks.
 
-    Wraps OpenEnv's FleetTaskEnv and adapts it to SkyRL's BaseTextEnv interface.
+    Uses Fleet SDK directly to create environments and run verifiers.
+    No dependency on OpenEnv.
     """
 
     def __init__(
@@ -112,44 +140,69 @@ class FleetTaskEnv(BaseTextEnv):
         tasks = load_tasks_from_json(self.tasks_file)
         self.task_config = tasks.get(self.task_key)
         if not self.task_config:
-            raise ValueError(f"Task '{self.task_key}' not found in {self.tasks_file}")
+            available_keys = list(tasks.keys())[:5]
+            raise ValueError(
+                f"Task '{self.task_key}' not found in {self.tasks_file}. "
+                f"Available keys (first 5): {available_keys}"
+            )
 
         # API key
         self.api_key = env_config.get("api_key") or os.environ.get("FLEET_API_KEY")
+        if not self.api_key:
+            raise ValueError("FLEET_API_KEY must be set in env_config or environment")
 
         # Environment state (initialized on init())
-        self.fleet_env: Optional[OpenEnvFleetTaskEnv] = None
+        self.fleet_env = None
+        self.fleet_task = None
         self.chat_history: ConversationType = []
+        self.turns = 0
+        self.tools: List[Dict[str, Any]] = []
 
     def init(self, prompt: ConversationType) -> Tuple[ConversationType, Dict[str, Any]]:
         """
         Initialize the Fleet environment and return initial observation.
 
-        Creates OpenEnv's FleetTaskEnv, resets it, and returns the task prompt.
+        Creates Fleet environment via task.make() and returns the task prompt.
         """
-        # Create OpenEnv's FleetTaskEnv
-        self.fleet_env = OpenEnvFleetTaskEnv(
-            task_config=self.task_config,
-            api_key=self.api_key,
-            ttl_seconds=600,
-            max_steps=self.max_turns,
-        )
+        # Get Fleet client and load task
+        fleet = get_fleet_client(self.api_key)
 
-        # Reset the environment (this provisions the Fleet instance)
-        obs = self.fleet_env.reset()
+        # Load task from Fleet API using task key
+        try:
+            tasks = fleet.load_tasks()
+            self.fleet_task = None
+            for task in tasks:
+                if task.key == self.task_key:
+                    self.fleet_task = task
+                    break
+
+            if self.fleet_task is None:
+                raise ValueError(f"Task '{self.task_key}' not found in Fleet API")
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to load task from Fleet API: {e}") from e
+
+        # Create Fleet environment
+        try:
+            self.fleet_env = self.fleet_task.make()
+        except Exception as e:
+            raise RuntimeError(f"Failed to create Fleet environment: {e}") from e
 
         # Reset state
         self.turns = 0
 
-        # Get tools from observation
-        tools = obs.get("tools", [])
+        # Get tools from Fleet environment
+        try:
+            self.tools = self.fleet_env.mcp.list_tools() if hasattr(self.fleet_env, 'mcp') else []
+        except Exception:
+            self.tools = []
 
         # Build initial prompt with task instruction
         task_prompt = self.task_config.get("prompt", "")
 
         # Add tool information if available
-        if tools:
-            tool_names = [t.get("function", {}).get("name", "unknown") for t in tools]
+        if self.tools:
+            tool_names = [t.get("name", "unknown") for t in self.tools]
             tools_info = f"\n\nAvailable tools: {', '.join(tool_names)}\n"
             tools_info += (
                 'To use a tool, respond with: <tool_call>{"name": "tool_name", "arguments": {...}}</tool_call>\n'
@@ -165,7 +218,7 @@ class FleetTaskEnv(BaseTextEnv):
         metadata = {
             "task_key": self.task_key,
             "env_key": self.task_config.get("env_key") or self.task_config.get("env_id"),
-            "tools": tools,
+            "tools": self.tools,
             "modality": self.task_config.get("task_modality", "tool_use"),
         }
 
@@ -175,7 +228,7 @@ class FleetTaskEnv(BaseTextEnv):
         """
         Execute one step in the Fleet environment.
 
-        Parses the action for tool calls, executes via OpenEnv's FleetTaskEnv,
+        Parses the action for tool calls, executes via Fleet SDK,
         and returns observation. Reward is computed by the verifier on completion.
         """
         self.turns += 1
@@ -186,24 +239,36 @@ class FleetTaskEnv(BaseTextEnv):
         # Check if agent signals completion
         agent_done = "<done>" in action.lower() or "[done]" in action.lower()
 
-        # Build action dict for FleetTaskEnv
-        fleet_action = {"done": agent_done}
-
-        # Parse and add tool call
+        # Parse tool call
         tool_call = parse_tool_call(action)
-        if tool_call:
-            fleet_action["tool"] = tool_call.get("name")
-            fleet_action["params"] = tool_call.get("arguments", {})
 
-        # Execute step via OpenEnv's FleetTaskEnv
-        obs, reward, done, info = _run_async(self.fleet_env.step_async(fleet_action))
+        tool_result = None
+        error = None
+        reward = 0.0
 
-        # Extract tool result from observation
-        tool_result = obs.get("observation")
-        error = info.get("tool_error")
+        # Execute tool call if present
+        if tool_call and self.fleet_env and hasattr(self.fleet_env, 'mcp'):
+            try:
+                result = self.fleet_env.mcp.call_tool(
+                    tool_call["name"],
+                    tool_call.get("arguments", {})
+                )
+                tool_result = result
+            except Exception as e:
+                error = str(e)
 
-        # Determine if episode is done
-        episode_done = done or max_turns_reached
+        # Check if episode is done
+        episode_done = agent_done or max_turns_reached
+
+        # Run verifier if done
+        if episode_done and self.fleet_task and self.fleet_env:
+            try:
+                reward = self.fleet_task.verify(self.fleet_env)
+                if reward is None:
+                    reward = 0.0
+            except Exception as e:
+                print(f"Warning: Verifier failed: {e}")
+                reward = 0.0
 
         # Build observation message
         if max_turns_reached:
@@ -238,7 +303,7 @@ class FleetTaskEnv(BaseTextEnv):
             "tool_call": tool_call,
             "tool_result": tool_result,
             "error": error,
-            "done_reason": info.get("done_reason"),
+            "done_reason": "agent_done" if agent_done else None,
         }
 
         return BaseTextEnvStepOutput(
@@ -252,10 +317,12 @@ class FleetTaskEnv(BaseTextEnv):
         """Close the Fleet environment and cleanup resources."""
         if self.fleet_env:
             try:
-                self.fleet_env.close()
+                if hasattr(self.fleet_env, 'close'):
+                    self.fleet_env.close()
             except Exception as e:
                 print(f"Warning: Failed to close Fleet environment: {e}")
             self.fleet_env = None
+        self.fleet_task = None
 
     def get_metrics(self) -> Dict[str, Any]:
         """Return environment metrics for this episode."""
@@ -274,7 +341,7 @@ class FleetTaskEnv(BaseTextEnv):
         total_turns = sum(m.get("turns", 0) for m in metrics)
 
         # Group by env_key
-        env_counts = {}
+        env_counts: Dict[str, int] = {}
         for m in metrics:
             env_key = m.get("env_key", "unknown")
             env_counts[env_key] = env_counts.get(env_key, 0) + 1
@@ -284,3 +351,10 @@ class FleetTaskEnv(BaseTextEnv):
             "total_episodes": len(metrics),
             "env_distribution": env_counts,
         }
+
+
+def clear_caches():
+    """Clear global caches. Useful for testing."""
+    global _TASK_CACHE, _FLEET_CLIENT
+    _TASK_CACHE = {}
+    _FLEET_CLIENT = None
