@@ -23,6 +23,7 @@ sys.modules["skyrl_gym"] = MagicMock()
 sys.modules["skyrl_gym.envs"] = MagicMock()
 sys.modules["skyrl_gym.envs.base_text_env"] = mock_base_text_env
 
+# ruff: noqa: E402
 from integrations.fleet.env import (
     load_tasks_from_json,
     parse_tool_call,
