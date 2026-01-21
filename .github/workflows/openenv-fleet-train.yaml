@@ -136,6 +136,10 @@ jobs:
                   "text": { "type": "mrkdwn", "text": "*Monitor:*\n```sky jobs logs ${{ steps.launch.outputs.job_id }}```" }
                 },
                 {
+                  "type": "section",
+                  "text": { "type": "mrkdwn", "text": "*WandB:*\n<https://wandb.ai/fleet-ai/openenv-fleet|View Training Dashboard>" }
+                },
+                {
                   "type": "context",
                   "elements": [
                     { "type": "mrkdwn", "text": "Triggered by: ${{ github.actor }} | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow>" }
