@@ -1,0 +1,155 @@
+name: "OpenEnv Fleet Training (SkyPilot)"
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'skyrl-train/integrations/openenv/**'
+      - 'skyrl-train/tasks/**'
+      - 'skyrl-gym/**'
+  workflow_dispatch:
+    inputs:
+      modality:
+        description: "Task modality"
+        type: choice
+        options:
+          - tool_use
+          - computer_use
+        default: tool_use
+      env_name:
+        description: "OpenEnv environment name"
+        type: string
+        default: "echo_env"
+      cloud:
+        description: "Preferred cloud (any = auto-select cheapest)"
+        type: choice
+        options:
+          - any
+          - lambda
+          - runpod
+          - vast
+        default: any
+
+env:
+  RUN_NAME_PREFIX: "openenv-fleet"
+
+jobs:
+  launch-training:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install SkyPilot
+        run: pip install "skypilot[lambda,runpod,vast]"
+
+      - name: Configure Cloud Credentials
+        run: |
+          # Lambda
+          mkdir -p ~/.lambda_cloud
+          echo "api_key = ${{ secrets.LAMBDA_API_KEY }}" > ~/.lambda_cloud/lambda_keys
+
+          # RunPod
+          pip install runpod
+          runpod config "${{ secrets.RUNPOD_API_KEY }}"
+
+          # Vast.ai
+          mkdir -p ~/.config/vastai
+          echo "${{ secrets.VAST_API_KEY }}" > ~/.config/vastai/vast_api_key
+
+      - name: Verify Cloud Credentials
+        run: sky check lambda runpod vast
+
+      - name: Generate Job Name
+        id: job_name
+        run: |
+          TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          PR_NUM="${{ github.event.pull_request.number || 'manual' }}"
+          JOB_NAME="${{ env.RUN_NAME_PREFIX }}-pr${PR_NUM}-${SHORT_SHA}-${TIMESTAMP}"
+          echo "name=$JOB_NAME" >> $GITHUB_OUTPUT
+          echo "Generated job name: $JOB_NAME"
+
+      - name: Select WandB Key
+        id: wandb
+        run: |
+          MODALITY="${{ inputs.modality || 'tool_use' }}"
+          if [ "$MODALITY" == "tool_use" ]; then
+            echo "key=${{ secrets.WANDB_API_KEY_TOOL_USE }}" >> $GITHUB_OUTPUT
+          else
+            echo "key=${{ secrets.WANDB_API_KEY_COMPUTER_USE }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Launch Training Job
+        id: launch
+        run: |
+          MODALITY="${{ inputs.modality || 'tool_use' }}"
+          ENV_NAME="${{ inputs.env_name || 'echo_env' }}"
+          PR_NUM="${{ github.event.pull_request.number || '0' }}"
+
+          sky jobs launch skyrl-train/tasks/openenv-fleet-grpo.yaml \
+            --name "${{ steps.job_name.outputs.name }}" \
+            --env WANDB_API_KEY="${{ steps.wandb.outputs.key }}" \
+            --env FLEET_API_KEY="${{ secrets.FLEET_API_KEY }}" \
+            --env MODALITY="$MODALITY" \
+            --env ENV_NAME="$ENV_NAME" \
+            --env PR_NUMBER="$PR_NUM" \
+            -y --async 2>&1 | tee /tmp/launch_output.txt
+
+          # Extract job ID
+          JOB_ID=$(grep -oP 'Job submitted, ID: \K\d+' /tmp/launch_output.txt || echo "pending")
+          echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
+
+      - name: Post Job Info to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const jobId = '${{ steps.launch.outputs.job_id }}';
+            const jobName = '${{ steps.job_name.outputs.name }}';
+            const modality = '${{ inputs.modality || 'tool_use' }}';
+            const envName = '${{ inputs.env_name || 'echo_env' }}';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🚀 OpenEnv Fleet Training Launched
+
+            | Field | Value |
+            |-------|-------|
+            | **Job Name** | \`${jobName}\` |
+            | **Job ID** | \`${jobId}\` |
+            | **Modality** | \`${modality}\` |
+            | **Environment** | \`${envName}\` |
+            | **Clouds** | Lambda / RunPod / Vast (auto-selected) |
+
+            **Monitor your job:**
+            \`\`\`bash
+            # View logs
+            sky jobs logs ${jobId}
+
+            # Check status
+            sky jobs queue
+            \`\`\`
+
+            **Dashboard:** Check your local SkyPilot dashboard for real-time status.
+            `
+            })
+
+      - name: Summary
+        run: |
+          echo "## Training Job Launched" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Job Name | \`${{ steps.job_name.outputs.name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Job ID | \`${{ steps.launch.outputs.job_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Modality | \`${{ inputs.modality || 'tool_use' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | \`${{ inputs.env_name || 'echo_env' }}\` |" >> $GITHUB_STEP_SUMMARY
