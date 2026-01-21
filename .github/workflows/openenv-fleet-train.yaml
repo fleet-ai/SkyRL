@@ -26,8 +26,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
 
 env:
   RUN_NAME_PREFIX: "openenv-fleet"
@@ -70,77 +68,70 @@ jobs:
         run: |
           TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          PR_NUM="${{ github.event.pull_request.number || 'manual' }}"
-          JOB_NAME="${{ env.RUN_NAME_PREFIX }}-pr${PR_NUM}-${SHORT_SHA}-${TIMESTAMP}"
+          JOB_NAME="${{ env.RUN_NAME_PREFIX }}-${{ inputs.modality }}-${SHORT_SHA}-${TIMESTAMP}"
           echo "name=$JOB_NAME" >> $GITHUB_OUTPUT
           echo "Generated job name: $JOB_NAME"
-
-      - name: Select WandB Key
-        id: wandb
-        run: |
-          MODALITY="${{ inputs.modality || 'tool_use' }}"
-          if [ "$MODALITY" == "tool_use" ]; then
-            echo "key=${{ secrets.WANDB_API_KEY_TOOL_USE }}" >> $GITHUB_OUTPUT
-          else
-            echo "key=${{ secrets.WANDB_API_KEY_COMPUTER_USE }}" >> $GITHUB_OUTPUT
-          fi
 
       - name: Launch Training Job
         id: launch
         run: |
-          MODALITY="${{ inputs.modality || 'tool_use' }}"
-          ENV_NAME="${{ inputs.env_name || 'echo_env' }}"
-          PR_NUM="${{ github.event.pull_request.number || '0' }}"
+          MODALITY="${{ inputs.modality }}"
+          ENV_NAME="${{ inputs.env_name }}"
 
           sky jobs launch skyrl-train/tasks/openenv-fleet-grpo.yaml \
             --name "${{ steps.job_name.outputs.name }}" \
-            --env WANDB_API_KEY="${{ steps.wandb.outputs.key }}" \
+            --env WANDB_API_KEY="${{ secrets.WANDB_API_KEY }}" \
             --env FLEET_API_KEY="${{ secrets.FLEET_API_KEY }}" \
             --env MODALITY="$MODALITY" \
             --env ENV_NAME="$ENV_NAME" \
-            --env PR_NUMBER="$PR_NUM" \
             -y --async 2>&1 | tee /tmp/launch_output.txt
 
           # Extract job ID
           JOB_ID=$(grep -oP 'Job submitted, ID: \K\d+' /tmp/launch_output.txt || echo "pending")
           echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
 
-      - name: Post Job Info to PR
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+      - name: Notify Slack
+        if: always()
+        uses: slackapi/slack-github-action@v2.0.0
         with:
-          script: |
-            const jobId = '${{ steps.launch.outputs.job_id }}';
-            const jobName = '${{ steps.job_name.outputs.name }}';
-            const modality = '${{ inputs.modality || 'tool_use' }}';
-            const envName = '${{ inputs.env_name || 'echo_env' }}';
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `## 🚀 OpenEnv Fleet Training Launched
-
-            | Field | Value |
-            |-------|-------|
-            | **Job Name** | \`${jobName}\` |
-            | **Job ID** | \`${jobId}\` |
-            | **Modality** | \`${modality}\` |
-            | **Environment** | \`${envName}\` |
-            | **Clouds** | Lambda / RunPod / Vast (auto-selected) |
-
-            **Monitor your job:**
-            \`\`\`bash
-            # View logs
-            sky jobs logs ${jobId}
-
-            # Check status
-            sky jobs queue
-            \`\`\`
-
-            **Dashboard:** Check your local SkyPilot dashboard for real-time status.
-            `
-            })
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            {
+              "channel": "#fleet-training",
+              "text": "OpenEnv Training Job ${{ job.status == 'success' && '✅ Launched' || '❌ Failed' }}",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "${{ job.status == 'success' && '🚀 OpenEnv Training Launched' || '❌ Training Launch Failed' }}"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    { "type": "mrkdwn", "text": "*Job Name:*\n`${{ steps.job_name.outputs.name }}`" },
+                    { "type": "mrkdwn", "text": "*Job ID:*\n`${{ steps.launch.outputs.job_id }}`" },
+                    { "type": "mrkdwn", "text": "*Modality:*\n`${{ inputs.modality }}`" },
+                    { "type": "mrkdwn", "text": "*Environment:*\n`${{ inputs.env_name }}`" }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Monitor:*\n```sky jobs logs ${{ steps.launch.outputs.job_id }}```"
+                  }
+                },
+                {
+                  "type": "context",
+                  "elements": [
+                    { "type": "mrkdwn", "text": "Triggered by: ${{ github.actor }} | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow>" }
+                  ]
+                }
+              ]
+            }
 
       - name: Summary
         run: |
@@ -150,5 +141,5 @@ jobs:
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Job Name | \`${{ steps.job_name.outputs.name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Job ID | \`${{ steps.launch.outputs.job_id }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Modality | \`${{ inputs.modality || 'tool_use' }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | \`${{ inputs.env_name || 'echo_env' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Modality | \`${{ inputs.modality }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | \`${{ inputs.env_name }}\` |" >> $GITHUB_STEP_SUMMARY
