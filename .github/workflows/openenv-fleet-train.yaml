@@ -95,16 +95,17 @@ jobs:
             exit 1
           fi
 
+          # Launch synchronously - waits for job completion
           sky jobs launch skyrl-train/tasks/openenv-fleet-grpo.yaml \
             --name "${{ steps.job_name.outputs.name }}" \
             --env WANDB_API_KEY="$WANDB_KEY" \
             --env FLEET_API_KEY="${{ secrets.FLEET_API_KEY }}" \
             --env MODALITY="$MODALITY" \
             --env ENV_NAME="$ENV_NAME" \
-            -y --async 2>&1 | tee /tmp/launch_output.txt
+            -y 2>&1 | tee /tmp/launch_output.txt
 
-          # Extract job ID
-          JOB_ID=$(grep -oP 'Job submitted, ID: \K\d+' /tmp/launch_output.txt || echo "pending")
+          # Extract job ID from output
+          JOB_ID=$(grep -oP 'Job ID: \K\d+' /tmp/launch_output.txt || grep -oP 'Job submitted, ID: \K\d+' /tmp/launch_output.txt || echo "unknown")
           echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
 
       - name: Notify Slack - Success
@@ -116,11 +117,11 @@ jobs:
           payload: |
             {
               "channel": "#fleet-training-runs",
-              "text": "🚀 OpenEnv Training Job Launched",
+              "text": "✅ OpenEnv Training Completed Successfully",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "🚀 OpenEnv Training Launched" }
+                  "text": { "type": "plain_text", "text": "✅ OpenEnv Training Completed" }
                 },
                 {
                   "type": "section",
