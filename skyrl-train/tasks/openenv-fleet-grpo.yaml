@@ -1,7 +1,7 @@
 # Fleet Task GRPO Training via SkyPilot
 # Usage: sky launch tasks/openenv-fleet-grpo.yaml --env FLEET_API_KEY=<key> --env WANDB_API_KEY=<key>
 #
-# This task trains GRPO on Fleet-hosted environments using Fleet SDK directly.
+# This task trains GRPO on Fleet-hosted environments using OpenEnv's FleetTaskEnv.
 # It loads tasks from the Fleet API and runs training with verifier-based rewards.
 
 name: fleet-task-grpo
@@ -45,8 +45,8 @@ setup: |
   uv sync --extra vllm
   uv pip install wandb
 
-  # Install Fleet SDK for environment access
-  uv pip install fleet-python
+  # Install OpenEnv for Fleet environment access
+  uv pip install openenv fleet-python
 
   # Export tasks from Fleet API to JSON
   EXPORT_ARGS="--output $HOME/data/fleet/tasks_${MODALITY}.json --modality $MODALITY"
@@ -103,6 +103,7 @@ run: |
   # Run GRPO training with Fleet task integration
   uv run --isolated --extra "$INFERENCE_BACKEND" \
     --with "litellm>=1.75.5" \
+    --with "openenv" \
     --with "fleet-python" \
     -m integrations.fleet.entrypoints.main_fleet \
     data.train_data="['${DATA_DIR}/train.parquet']" \
