@@ -52,9 +52,15 @@ class FleetPPOExp(BasePPOExp):
                 region = os.environ.get("AWS_REGION", "us-east-1")
 
                 # Build prefix from trainer config
-                run_name = getattr(self.cfg.trainer, "run_name", "unknown")
+                # Structure: {project}/{model}/{run_name}/
                 project_name = getattr(self.cfg.trainer, "project_name", "fleet-task-grpo")
-                prefix = f"{project_name}/{run_name}"
+                run_name = getattr(self.cfg.trainer, "run_name", "unknown")
+
+                # Extract model name from path (e.g., "Qwen/Qwen2.5-1.5B-Instruct" -> "Qwen2.5-1.5B-Instruct")
+                model_path = getattr(self.cfg.trainer.policy.model, "path", "unknown-model")
+                model_name = model_path.split("/")[-1] if "/" in model_path else model_path
+
+                prefix = f"{project_name}/{model_name}/{run_name}"
 
                 trainer = wrap_trainer_with_s3_upload(
                     trainer,
