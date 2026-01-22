@@ -1,7 +1,7 @@
 # Fleet Task Training Configuration
 # Usage: See run_fleet.sh for launch instructions
 
-agent_cls: skyrl_agent.agents.react.ReactAgent
+agent_cls: skyrl_agent.agents.react.ReActAgent
 
 task: skyrl_agent.tasks.fleet.FleetTask
 
