@@ -21,6 +21,7 @@ Environment Variables for S3 Checkpoint Upload:
 import asyncio
 import logging
 import os
+from pathlib import Path
 
 import hydra
 import ray
@@ -58,7 +59,7 @@ class FleetPPOExp(BasePPOExp):
 
                 # Extract model name from path (e.g., "Qwen/Qwen2.5-1.5B-Instruct" -> "Qwen2.5-1.5B-Instruct")
                 model_path = getattr(self.cfg.trainer.policy.model, "path", "unknown-model")
-                model_name = model_path.split("/")[-1] if "/" in model_path else model_path
+                model_name = Path(model_path).name
 
                 prefix = f"{project_name}/{model_name}/{run_name}"
 
