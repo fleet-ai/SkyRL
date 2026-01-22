@@ -21,7 +21,6 @@ name: fleet-task-training
 resources:
   accelerators: H100:1
   disk_size: 50
-  cloud: ${CLOUD:-any}
 
 envs:
   MODALITY: tool_use
