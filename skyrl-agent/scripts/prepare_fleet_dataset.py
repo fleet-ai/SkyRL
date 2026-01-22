@@ -10,12 +10,8 @@ import pandas as pd
 
 
 def main():
-    tasks_file = os.environ.get(
-        "TASKS_FILE", "/workspace/skyrl-agent/data/fleet_booking_sample.json"
-    )
-    output_dir = Path(
-        os.environ.get("DATA_DIR", os.path.expanduser("~/data/fleet/tool_use"))
-    )
+    tasks_file = os.environ.get("TASKS_FILE", "/workspace/skyrl-agent/data/fleet_booking_sample.json")
+    output_dir = Path(os.environ.get("DATA_DIR", os.path.expanduser("~/data/fleet/tool_use")))
 
     output_dir.mkdir(parents=True, exist_ok=True)
 

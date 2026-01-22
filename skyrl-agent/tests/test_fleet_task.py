@@ -260,12 +260,7 @@ class TestYAMLValidation:
         import yaml
         from pathlib import Path
 
-        yaml_path = (
-            Path(__file__).parent.parent
-            / "examples"
-            / "run_skyrl"
-            / "skyrl_fleet.yaml"
-        )
+        yaml_path = Path(__file__).parent.parent / "examples" / "run_skyrl" / "skyrl_fleet.yaml"
         if yaml_path.exists():
             with open(yaml_path) as f:
                 # This will raise if YAML is invalid
