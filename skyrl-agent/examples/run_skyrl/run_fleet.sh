@@ -128,16 +128,26 @@ export FLEET_API_KEY
 export ENV_KEY="${ENV_KEY:-}"
 export MAX_TASKS="${MAX_TASKS:-}"
 
-python -m skyrl_agent.auto \
-    --config examples/run_skyrl/skyrl_fleet.yaml \
+python -m skyrl_agent.integrations.skyrl_train.skyrl_train_main \
+    +generator.task="./examples/run_skyrl/skyrl_fleet.yaml" \
     data.train_data="['${DATA_DIR}/train.parquet']" \
     data.val_data="['${DATA_DIR}/validation.parquet']" \
     generator.max_iterations=$MAX_ITERATIONS \
     trainer.epochs=$NUM_EPOCHS \
     trainer.policy.model.path="$MODEL_PATH" \
+    trainer.placement.colocate_all=true \
+    trainer.strategy=fsdp2 \
     trainer.placement.policy_num_gpus_per_node=$NUM_GPUS \
     trainer.placement.ref_num_gpus_per_node=$NUM_GPUS \
     generator.num_inference_engines=$NUM_GPUS \
+    generator.inference_engine_tensor_parallel_size=1 \
+    trainer.algorithm.advantage_estimator="grpo" \
+    environment.env_class=null \
+    generator.n_samples_per_prompt=4 \
+    trainer.train_batch_size=4 \
+    trainer.policy_mini_batch_size=4 \
+    trainer.micro_forward_batch_size_per_gpu=1 \
+    trainer.micro_train_batch_size_per_gpu=1 \
     trainer.logger=wandb \
     trainer.project_name=fleet-task-training \
     trainer.run_name="fleet_${MODALITY}_$(date +%Y%m%d_%H%M%S)"
