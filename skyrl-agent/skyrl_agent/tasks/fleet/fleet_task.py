@@ -187,8 +187,10 @@ Use the available tools to complete this task. When you have completed the task,
             reward = await env._compute_reward()
             success = reward > 0
 
-            logger.info(f"Evaluation result for {task_config.get('task_key', 'unknown')}: "
-                       f"reward={reward}, success={success}")
+            logger.info(
+                f"Evaluation result for {task_config.get('task_key', 'unknown')}: "
+                f"reward={reward}, success={success}"
+            )
 
             return success
         except Exception as e:
