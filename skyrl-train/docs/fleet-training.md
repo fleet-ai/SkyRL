@@ -41,7 +41,7 @@ sky launch skyrl-train/tasks/openenv-fleet-grpo.yaml \
 
 ## Dataset Split Strategy
 
-The `prepare_dataset.py` script creates train/eval/test splits with the following strategy:
+The `prepare_dataset.py` script creates train/eval splits with the following strategy:
 
 **Stratified by Environment:** Each environment maintains the same train/eval ratio (default 90/10), ensuring balanced representation across all environments.
 
@@ -49,13 +49,13 @@ The `prepare_dataset.py` script creates train/eval/test splits with the followin
 
 **Minimum Eval Threshold:** Environments with fewer than 10 expected eval samples have all tasks go to train (prevents statistically unreliable eval sets).
 
-**Held-out Test Environments:**
+**Held-out Eval Environments:**
 | Modality | Held-out Env |
 |----------|--------------|
 | tool_use | outlook |
 | computer_use | instacart |
 
-These environments are completely excluded from train/eval and reserved for final test evaluation.
+These environments go entirely to eval (not used in training).
 
 ## GitHub Secrets
 

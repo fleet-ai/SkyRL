@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 from datasets import Dataset
 
-# Held-out environments for test set (not used in train/eval)
+# Held-out environments for eval only (not used in train)
 HELD_OUT_ENVS = {
     "tool_use": ["outlook"],
     "computer_use": ["instacart"],
@@ -117,7 +117,6 @@ def prepare_fleet_dataset(
     # Prepare records with stratified split
     train_records = []
     eval_records = []
-    test_records = []
 
     # Track per-env counts for summary table
     env_split_counts: Dict[str, Dict[str, int]] = {}
@@ -126,16 +125,16 @@ def prepare_fleet_dataset(
     for env_key in sorted(tasks_by_env.keys()):
         env_tasks = tasks_by_env[env_key]
 
-        # Check if this env is held out for test
+        # Check if this env is held out for eval only
         if env_key in held_out_envs:
-            env_test_count = 0
+            env_eval_count = 0
             for task in env_tasks:
                 record = _task_to_record(task, env_key)
                 if record:
-                    test_records.append(record)
-                    env_test_count += 1
-            env_split_counts[env_key] = {"train": 0, "eval": 0, "test": env_test_count}
-            print(f"  {env_key}: {len(env_tasks)} -> TEST (held-out)")
+                    eval_records.append(record)
+                    env_eval_count += 1
+            env_split_counts[env_key] = {"train": 0, "eval": env_eval_count}
+            print(f"  {env_key}: {len(env_tasks)} -> EVAL only (held-out)")
             continue
 
         # Calculate expected eval size
@@ -149,7 +148,7 @@ def prepare_fleet_dataset(
                 if record:
                     train_records.append(record)
                     env_train_count += 1
-            env_split_counts[env_key] = {"train": env_train_count, "eval": 0, "test": 0}
+            env_split_counts[env_key] = {"train": env_train_count, "eval": 0}
             print(f"  {env_key}: {len(env_tasks)} -> all TRAIN (< {MIN_EVAL_SAMPLES} eval samples)")
             continue
 
@@ -170,15 +169,14 @@ def prepare_fleet_dataset(
                 train_records.append(record)
                 env_train += 1
 
-        env_split_counts[env_key] = {"train": env_train, "eval": env_eval, "test": 0}
+        env_split_counts[env_key] = {"train": env_train, "eval": env_eval}
         print(f"  {env_key}: {len(env_tasks)} -> {env_train} train, {env_eval} eval")
 
-    print(f"\nTotal: {len(train_records)} train, {len(eval_records)} eval, {len(test_records)} test")
+    print(f"\nTotal: {len(train_records)} train, {len(eval_records)} eval")
 
     # Create datasets
     train_dataset = Dataset.from_list(train_records) if train_records else None
     eval_dataset = Dataset.from_list(eval_records) if eval_records else None
-    test_dataset = Dataset.from_list(test_records) if test_records else None
 
     # Save to parquet
     os.makedirs(output_dir, exist_ok=True)
@@ -193,29 +191,22 @@ def prepare_fleet_dataset(
         eval_dataset.to_parquet(eval_path)
         print(f"Saved validation dataset to {eval_path}")
 
-    if test_dataset:
-        test_path = os.path.join(output_dir, "test.parquet")
-        test_dataset.to_parquet(test_path)
-        print(f"Saved test dataset to {test_path}")
-
     # Print summary statistics
     print("\n=== Dataset Summary ===")
     print(f"Train: {len(train_records)}")
-    print(f"Eval:  {len(eval_records)}")
-    print(f"Test:  {len(test_records)} (held-out: {held_out_envs or 'none'})")
+    print(f"Eval:  {len(eval_records)} (includes held-out: {held_out_envs or 'none'})")
 
     # Print per-environment breakdown table
     print("\n=== Per-Environment Breakdown ===")
-    print(f"{'Environment':<20} {'Train':>8} {'Eval':>8} {'Test':>8} {'Total':>8}")
-    print("-" * 56)
+    print(f"{'Environment':<20} {'Train':>8} {'Eval':>8} {'Total':>8}")
+    print("-" * 48)
     for env_key in sorted(env_split_counts.keys()):
         counts = env_split_counts[env_key]
-        total = counts["train"] + counts["eval"] + counts["test"]
-        print(f"{env_key:<20} {counts['train']:>8} {counts['eval']:>8} {counts['test']:>8} {total:>8}")
-    print("-" * 56)
+        total = counts["train"] + counts["eval"]
+        print(f"{env_key:<20} {counts['train']:>8} {counts['eval']:>8} {total:>8}")
+    print("-" * 48)
     print(
-        f"{'TOTAL':<20} {len(train_records):>8} {len(eval_records):>8} {len(test_records):>8} "
-        f"{len(train_records) + len(eval_records) + len(test_records):>8}"
+        f"{'TOTAL':<20} {len(train_records):>8} {len(eval_records):>8} " f"{len(train_records) + len(eval_records):>8}"
     )
 
 

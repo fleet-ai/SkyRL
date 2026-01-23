@@ -147,7 +147,7 @@ class TestLoadTasksFromJson:
 
 
 class TestHeldOutEnvs:
-    """Tests for held-out test environment configuration."""
+    """Tests for held-out eval environment configuration."""
 
     def test_tool_use_held_out(self):
         """Outlook is held out for tool_use."""
@@ -180,8 +180,8 @@ class TestPrepareFleetDataset:
                 )
         return tasks
 
-    def test_held_out_env_goes_to_test(self):
-        """Held-out environments go entirely to test split."""
+    def test_held_out_env_goes_to_eval(self):
+        """Held-out environments go entirely to eval split."""
         tasks = self._create_test_tasks(
             {"github": 100, "outlook": 24},  # outlook is held out for tool_use
             modality="tool_use",
@@ -198,15 +198,16 @@ class TestPrepareFleetDataset:
                 modality="tool_use",
             )
 
-            # Check test.parquet exists and contains outlook tasks
-            test_path = os.path.join(tmpdir, "test.parquet")
-            assert os.path.exists(test_path)
+            # Check validation.parquet contains outlook tasks (held-out go to eval)
+            val_path = os.path.join(tmpdir, "validation.parquet")
+            assert os.path.exists(val_path)
 
             import pyarrow.parquet as pq
 
-            test_df = pq.read_table(test_path).to_pandas()
-            assert len(test_df) == 24
-            assert all("outlook" in k for k in test_df["task_key"])
+            val_df = pq.read_table(val_path).to_pandas()
+            # Should have outlook (24) + github eval (~12)
+            outlook_tasks = [k for k in val_df["task_key"] if "outlook" in k]
+            assert len(outlook_tasks) == 24
 
     def test_small_env_all_to_train(self):
         """Environments with < MIN_EVAL_SAMPLES go entirely to train."""
@@ -266,9 +267,8 @@ class TestPrepareFleetDataset:
 
     def test_modality_filter(self):
         """Only tasks matching modality are included."""
-        tasks = (
-            self._create_test_tasks({"github": 50}, modality="tool_use")
-            + self._create_test_tasks({"amazon": 50}, modality="computer_use")
+        tasks = self._create_test_tasks({"github": 50}, modality="tool_use") + self._create_test_tasks(
+            {"amazon": 50}, modality="computer_use"
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -333,12 +333,8 @@ class TestPrepareFleetDataset:
 
             train1 = set(pq.read_table(os.path.join(out1, "train.parquet")).to_pandas()["task_key"])
             train2 = set(pq.read_table(os.path.join(out2, "train.parquet")).to_pandas()["task_key"])
-            val1 = set(
-                pq.read_table(os.path.join(out1, "validation.parquet")).to_pandas()["task_key"]
-            )
-            val2 = set(
-                pq.read_table(os.path.join(out2, "validation.parquet")).to_pandas()["task_key"]
-            )
+            val1 = set(pq.read_table(os.path.join(out1, "validation.parquet")).to_pandas()["task_key"])
+            val2 = set(pq.read_table(os.path.join(out2, "validation.parquet")).to_pandas()["task_key"])
 
             assert train1 == train2, "Train splits should be identical"
             assert val1 == val2, "Validation splits should be identical"
@@ -363,6 +359,7 @@ class TestPrepareFleetDataset:
 
             import pyarrow.parquet as pq
 
-            test_df = pq.read_table(os.path.join(tmpdir, "test.parquet")).to_pandas()
-            assert len(test_df) == 32
-            assert all("instacart" in k for k in test_df["task_key"])
+            val_df = pq.read_table(os.path.join(tmpdir, "validation.parquet")).to_pandas()
+            # Should have instacart (32) + amazon eval (~14)
+            instacart_tasks = [k for k in val_df["task_key"] if "instacart" in k]
+            assert len(instacart_tasks) == 32
