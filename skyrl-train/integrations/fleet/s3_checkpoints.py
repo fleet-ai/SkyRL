@@ -98,7 +98,9 @@ class S3CheckpointUploader:
                     s3.upload_file(str(file_path), self.bucket, s3_key, Config=transfer_config)
                     uploaded_files += 1
 
-            logger.info(f"Uploaded {checkpoint_name}: {uploaded_files} files, {total_size / 1e9:.2f} GB to s3://{self.bucket}/{s3_prefix}/")
+            logger.info(
+                f"Uploaded {checkpoint_name}: {uploaded_files} files, {total_size / 1e9:.2f} GB to s3://{self.bucket}/{s3_prefix}/"
+            )
 
             # Delete local after successful upload
             logger.info(f"Deleting local checkpoint: {local_dir}")
