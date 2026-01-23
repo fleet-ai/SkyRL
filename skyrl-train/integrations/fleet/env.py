@@ -12,13 +12,12 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-logger = logging.getLogger(__name__)
-
 from omegaconf import DictConfig
 
 from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput, ConversationType
 from envs.fleet_env import FleetTaskEnv as OpenEnvFleetTaskEnv
 
+logger = logging.getLogger(__name__)
 
 # Global task cache to avoid reloading JSON for each env instance
 _TASK_CACHE: Dict[str, Dict[str, Any]] = {}
