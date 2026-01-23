@@ -6,7 +6,7 @@ RL training on Fleet-hosted environments using SkyPilot for GPU provisioning.
 
 **Run training via GitHub Actions:**
 1. Go to **Actions** → **"Fleet Task Training (SkyPilot)"** → **"Run workflow"**
-2. Select `modality` (`tool_use` or `computer_use`) and optionally filter by `env_key`
+2. Select `modality` (`tool_use` or `computer_use`), optionally filter by `env_key`, and set `task_name` to point to a YAML file in `skyrl-train/tasks/`
 3. Training provisions H100, logs to WandB, uploads checkpoints to S3
 
 **Run training via CLI:**
@@ -77,7 +77,7 @@ Local checkpoints deleted after upload to save disk.
 ## Monitoring
 
 - **WandB:** https://wandb.ai/thefleet/fleet-task-grpo
-- **Slack:** `#fleet-training-runs-test`
+- **Slack:** `#fleet-training-runs`
 - **Logs:** `sky logs --follow <cluster-name>`
 - **Status:** `sky status`
 
