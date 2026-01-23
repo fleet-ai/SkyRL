@@ -7,9 +7,12 @@ It uses OpenEnv's FleetTaskEnv as the abstraction layer for Fleet environments.
 
 import asyncio
 import json
+import logging
 import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 from omegaconf import DictConfig
 
@@ -183,14 +186,17 @@ class FleetTaskEnv(BaseTextEnv):
         # Reset the OpenEnv environment
         try:
             obs = self.openenv_task_env.reset()
+            self._init_failed = False
         except Exception as e:
-            raise RuntimeError(f"Failed to reset Fleet environment: {e}") from e
+            logger.error(f"Failed to reset Fleet environment for task {self.task_key}: {e}")
+            self._init_failed = True
+            obs = {}
 
         # Reset state
         self.turns = 0
 
         # Get tools from observation (if available)
-        self.tools = obs.get("tools", [])
+        self.tools = obs.get("tools", []) if not self._init_failed else []
 
         # Build initial prompt with task instruction
         task_prompt = self.task_config.get("prompt", "")
@@ -226,6 +232,17 @@ class FleetTaskEnv(BaseTextEnv):
         Parses the action for tool calls, executes via OpenEnv's FleetTaskEnv,
         and returns observation. Reward is computed by the verifier on completion.
         """
+        # If init failed, return immediately with done=True and reward=0
+        if getattr(self, "_init_failed", False):
+            self.chat_history.append({"role": "assistant", "content": action})
+            self.chat_history.append({"role": "user", "content": "Environment initialization failed. Task skipped."})
+            return BaseTextEnvStepOutput(
+                conversation=self.chat_history,
+                reward=0.0,
+                done=True,
+                metadata={"error": "init_failed", "task_key": self.task_key},
+            )
+
         self.turns += 1
         self.chat_history.append({"role": "assistant", "content": action})
 
