@@ -313,14 +313,51 @@ jobs:
               ]
             }
 
-      - name: Cleanup on Failure
-        if: failure()
+      - name: Cleanup on Failure or Cancellation
+        if: failure() || cancelled()
         run: |
           CLUSTER_NAME="${{ steps.cluster.outputs.name }}"
           if [ -n "$CLUSTER_NAME" ]; then
-            echo "Cleaning up cluster $CLUSTER_NAME..."
+            echo "Cleaning up cluster $CLUSTER_NAME (reason: ${{ job.status }})..."
             sky down "$CLUSTER_NAME" -y || true
+            echo "Cluster terminated."
           fi
+
+      - name: Notify Slack - Training Cancelled
+        if: cancelled() && steps.slack_start.outputs.ts
+        uses: slackapi/slack-github-action@v2.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            {
+              "channel": "#fleet-training-runs",
+              "thread_ts": "${{ steps.slack_start.outputs.ts }}",
+              "text": "⚠️ Fleet Training Cancelled",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": { "type": "plain_text", "text": "⚠️ Fleet Training Cancelled" }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    { "type": "mrkdwn", "text": "*Run:*\n`${{ steps.cluster.outputs.name }}`" },
+                    { "type": "mrkdwn", "text": "*Status:*\n`CANCELLED`" }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": { "type": "mrkdwn", "text": "Cluster has been terminated to prevent orphaned resources." }
+                },
+                {
+                  "type": "context",
+                  "elements": [
+                    { "type": "mrkdwn", "text": "Cancelled by: ${{ github.actor }} | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow>" }
+                  ]
+                }
+              ]
+            }
 
       - name: Summary
         if: always()
