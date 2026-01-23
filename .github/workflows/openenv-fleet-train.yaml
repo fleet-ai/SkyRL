@@ -92,10 +92,10 @@ jobs:
 
           # Generate WandB run name (matches trainer.run_name in YAML)
           MODALITY="${{ inputs.modality }}"
-          ENV_KEY="${{ inputs.env_key }}"
-          PR_NUMBER="${{ github.event.pull_request.number || '0' }}"
-          WANDB_RUN_NAME="fleet_${MODALITY}_${ENV_KEY:-all}_pr${PR_NUMBER}"
+          RUN_ID=$(head -c 4 /dev/urandom | xxd -p)
+          WANDB_RUN_NAME="fleet_${MODALITY}_${RUN_ID}"
           echo "wandb_run_name=$WANDB_RUN_NAME" >> $GITHUB_OUTPUT
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
           echo "Generated WandB run name: $WANDB_RUN_NAME"
 
       - name: Launch Training Cluster
@@ -125,7 +125,7 @@ jobs:
           LAUNCH_CMD="$LAUNCH_CMD --env WANDB_API_KEY=$WANDB_KEY"
           LAUNCH_CMD="$LAUNCH_CMD --env FLEET_API_KEY=${{ secrets.FLEET_API_KEY }}"
           LAUNCH_CMD="$LAUNCH_CMD --env MODALITY=$MODALITY"
-          LAUNCH_CMD="$LAUNCH_CMD --env PR_NUMBER=${{ github.event.pull_request.number || '0' }}"
+          LAUNCH_CMD="$LAUNCH_CMD --env RUN_ID=${{ steps.cluster.outputs.run_id }}"
 
           # AWS credentials (required for S3 dataset download and checkpoint upload)
           if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
