@@ -16,20 +16,8 @@ logger = logging.getLogger(__name__)
 
 from omegaconf import DictConfig
 
-# Import SkyRL base classes
-try:
-    from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput, ConversationType
-except ImportError as e:
-    raise ImportError("skyrl_gym is required. Make sure you're running within the SkyRL environment.") from e
-
-# Import OpenEnv's FleetTaskEnv (from deniz/fleet_client branch)
-try:
-    from envs.fleet_env import FleetTaskEnv as OpenEnvFleetTaskEnv
-except ImportError as e:
-    raise ImportError(
-        "OpenEnv is required for Fleet integration. Install from git:\n"
-        "pip install git+https://github.com/fleet-ai/OpenEnv.git@deniz/fleet_client"
-    ) from e
+from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput, ConversationType
+from envs.fleet_env import FleetTaskEnv as OpenEnvFleetTaskEnv
 
 
 # Global task cache to avoid reloading JSON for each env instance
