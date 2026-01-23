@@ -259,9 +259,7 @@ def calculate_per_source_reward_metrics(
     for data_source, indices in data_source_indices.items():
         # Extract subset for this data source
         subset_generator_output = {
-            key: [value[i] for i in indices]
-            for key, value in generator_outputs.items()
-            if isinstance(value, list)
+            key: [value[i] for i in indices] for key, value in generator_outputs.items() if isinstance(value, list)
         }
         subset_uids = [uids[i] for i in indices]
 
