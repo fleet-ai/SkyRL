@@ -119,16 +119,22 @@ def prepare_fleet_dataset(
     eval_records = []
     test_records = []
 
+    # Track per-env counts for summary table
+    env_split_counts: Dict[str, Dict[str, int]] = {}
+
     print("\n=== Per-Environment Split ===")
     for env_key in sorted(tasks_by_env.keys()):
         env_tasks = tasks_by_env[env_key]
 
         # Check if this env is held out for test
         if env_key in held_out_envs:
+            env_test_count = 0
             for task in env_tasks:
                 record = _task_to_record(task, env_key)
                 if record:
                     test_records.append(record)
+                    env_test_count += 1
+            env_split_counts[env_key] = {"train": 0, "eval": 0, "test": env_test_count}
             print(f"  {env_key}: {len(env_tasks)} -> TEST (held-out)")
             continue
 
@@ -137,10 +143,13 @@ def prepare_fleet_dataset(
 
         # If not enough samples for eval, put all in train
         if expected_eval_size < MIN_EVAL_SAMPLES:
+            env_train_count = 0
             for task in env_tasks:
                 record = _task_to_record(task, env_key)
                 if record:
                     train_records.append(record)
+                    env_train_count += 1
+            env_split_counts[env_key] = {"train": env_train_count, "eval": 0, "test": 0}
             print(f"  {env_key}: {len(env_tasks)} -> all TRAIN (< {MIN_EVAL_SAMPLES} eval samples)")
             continue
 
@@ -161,6 +170,7 @@ def prepare_fleet_dataset(
                 train_records.append(record)
                 env_train += 1
 
+        env_split_counts[env_key] = {"train": env_train, "eval": env_eval, "test": 0}
         print(f"  {env_key}: {len(env_tasks)} -> {env_train} train, {env_eval} eval")
 
     print(f"\nTotal: {len(train_records)} train, {len(eval_records)} eval, {len(test_records)} test")
@@ -193,6 +203,20 @@ def prepare_fleet_dataset(
     print(f"Train: {len(train_records)}")
     print(f"Eval:  {len(eval_records)}")
     print(f"Test:  {len(test_records)} (held-out: {held_out_envs or 'none'})")
+
+    # Print per-environment breakdown table
+    print("\n=== Per-Environment Breakdown ===")
+    print(f"{'Environment':<20} {'Train':>8} {'Eval':>8} {'Test':>8} {'Total':>8}")
+    print("-" * 56)
+    for env_key in sorted(env_split_counts.keys()):
+        counts = env_split_counts[env_key]
+        total = counts["train"] + counts["eval"] + counts["test"]
+        print(f"{env_key:<20} {counts['train']:>8} {counts['eval']:>8} {counts['test']:>8} {total:>8}")
+    print("-" * 56)
+    print(
+        f"{'TOTAL':<20} {len(train_records):>8} {len(eval_records):>8} {len(test_records):>8} "
+        f"{len(train_records) + len(eval_records) + len(test_records):>8}"
+    )
 
 
 def _task_to_record(task: Dict[str, Any], env_key: str) -> Optional[Dict[str, Any]]:
