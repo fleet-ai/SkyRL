@@ -91,18 +91,3 @@ Local checkpoints deleted after upload to save disk.
 | `skyrl-train/integrations/fleet/entrypoints/main_fleet.py` | Training entrypoint |
 | `skyrl-train/integrations/fleet/s3_checkpoints.py` | S3 upload module |
 | `skyrl-train/integrations/fleet/prepare_dataset.py` | Dataset prep |
-| `skyrl-train/data/fleet_booking_sample.json` | Sample dataset (100 tasks) |
-
-## Troubleshooting
-
-| Error | Solution |
-|-------|----------|
-| `No space left on device` | Add AWS credentials for S3 upload |
-| `ModuleNotFoundError: envs` | Check OpenEnv install from `deniz/fleet_client` branch |
-| Cluster won't start | Run `sky check lambda runpod vast` |
-
-## Creating PRs
-
-1. Never push to main - create a branch (`feat/`, `fix/`, `docs/`)
-2. Training runs triggered manually via Actions tab
-3. Checkpoints stored at `s3://skyrl-checkpoints/{project}/{model}/{run}/`
