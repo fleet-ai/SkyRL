@@ -52,7 +52,7 @@ envs:
   # Training parameters
   MAX_TURNS: 50
   MAX_INPUT_LENGTH: 24000  # Max context at each turn (Qwen3-8B has 32K)
-  MAX_GENERATE_LENGTH: 4096
+  MAX_GENERATE_LENGTH: 2048
   NUM_EPOCHS: 20
   RUN_ID: ""
   # Optional: limit number of tasks for testing
@@ -119,6 +119,9 @@ run: |
   mkdir -p "$TMP_DIR"
   export TMPDIR="$TMP_DIR"
 
+  # Help PyTorch memory allocator handle fragmentation
+  export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
   TASKS_FILE="$HOME/data/fleet/tasks_${MODALITY}.json"
   DATA_DIR="$HOME/data/fleet/${MODALITY}"
 
@@ -162,14 +165,14 @@ run: |
     generator.num_inference_engines=$TOTAL_GPUS \
     generator.inference_engine_tensor_parallel_size=1 \
     trainer.epochs=${NUM_EPOCHS} \
-    trainer.eval_batch_size=8 \
+    trainer.eval_batch_size=4 \
     trainer.eval_before_train=true \
     trainer.eval_interval=10 \
     trainer.update_epochs_per_batch=1 \
-    trainer.train_batch_size=8 \
-    trainer.policy_mini_batch_size=8 \
-    trainer.micro_forward_batch_size_per_gpu=4 \
-    trainer.micro_train_batch_size_per_gpu=4 \
+    trainer.train_batch_size=4 \
+    trainer.policy_mini_batch_size=4 \
+    trainer.micro_forward_batch_size_per_gpu=2 \
+    trainer.micro_train_batch_size_per_gpu=2 \
     trainer.ckpt_interval=10 \
     trainer.max_prompt_length=512 \
     generator.max_input_length=$MAX_INPUT_LENGTH \
