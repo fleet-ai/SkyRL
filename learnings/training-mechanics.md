@@ -150,6 +150,61 @@ skyrl_gym_generator.py:agent_loop()
 
 ---
 
+## Thinking Tokens: When They Get Stripped
+
+### The Problem
+
+The official Qwen3 chat template **strips `<think>` content from non-last assistant messages**. This is by design for inference (users don't want to see old reasoning), but breaks RL training.
+
+**Example - Multi-turn with official template:**
+```
+Turn 1: Model generates "<think>step 1</think>call_tool()"
+Turn 2: Model sees context WITHOUT the thinking: "call_tool()"  ← thinking stripped!
+Turn 3: Loss computed on tokens that don't match what model saw
+```
+
+This causes **off-policy training** - the model is trained on token sequences it never actually generated in that context.
+
+### Why It Matters for RL
+
+1. **On-policy requirement**: PPO/GRPO assume the policy that generated the data is the same as the one being trained
+2. **Context mismatch**: If thinking is stripped from context, the model's next-turn generation was conditioned on different tokens than what we compute loss on
+3. **Credit assignment**: The model can't learn from its reasoning if that reasoning disappears from context
+
+### Solutions
+
+| Approach | How | Trade-off |
+|----------|-----|-----------|
+| **`step_wise_trajectories=true`** | Each turn is separate sample, no cross-turn context needed | Longer trajectories get more weight in batch |
+| **`qwen3_acc_thinking.jinja2`** | Custom template that preserves thinking verbatim | Need to pass to vLLM |
+| **Don't use custom template** (Fleet default) | Append raw tokens without re-applying template | Works if not using `retokenize_chat_history` |
+
+### Fleet Tool-Use Config (Current)
+
+```yaml
+step_wise_trajectories=false      # Whole trajectory = 1 sample
+custom_chat_template=null         # No template reformatting
+use_conversation_multi_turn=true  # Multi-turn enabled
+```
+
+**Why this works**: Without a custom template, SkyRL appends tokens directly without re-applying any template. The model sees its own thinking in context, and loss is computed on the same tokens. Fully on-policy.
+
+### When Thinking DOES Get Stripped
+
+1. Using official Qwen3 template with `retokenize_chat_history=true`
+2. Passing messages through any template that parses `<think>` tags
+3. Using `step_wise=true` with default template (each turn re-tokenized, thinking reformatted)
+
+### Key Insight
+
+The confusion arises because there are TWO places templates matter:
+1. **vLLM inference** - How the engine formats the prompt for generation
+2. **Training tokenization** - How we build `response_ids` for loss computation
+
+For on-policy training, both must produce the same tokens.
+
+---
+
 ## Key Files
 
 | File | Purpose |
