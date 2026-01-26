@@ -343,23 +343,36 @@ You MUST call tools to complete the task. Only include <done> AFTER you have suc
 
     @staticmethod
     def aggregate_metrics(metrics: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Aggregate metrics across episodes."""
+        """Aggregate metrics across episodes with per-env breakdown."""
         if not metrics:
             return {}
 
-        total_turns = sum(m.get("turns", 0) for m in metrics)
-
-        # Group by env_key
-        env_counts: Dict[str, int] = {}
+        # Group turns by env_key
+        env_turns: Dict[str, List[int]] = {}
         for m in metrics:
             env_key = m.get("env_key", "unknown")
-            env_counts[env_key] = env_counts.get(env_key, 0) + 1
+            turns = m.get("turns", 0)
+            env_turns.setdefault(env_key, []).append(turns)
 
-        return {
-            "avg_turns": total_turns / len(metrics),
-            "total_episodes": len(metrics),
-            "env_distribution": env_counts,
-        }
+        result: Dict[str, Any] = {}
+        total_turns = 0
+        total_episodes = 0
+
+        # Per-env_key metrics
+        for env_key, turns_list in env_turns.items():
+            avg = sum(turns_list) / len(turns_list)
+            result[f"{env_key}/avg_turns"] = avg
+            result[f"{env_key}/min_turns"] = min(turns_list)
+            result[f"{env_key}/max_turns"] = max(turns_list)
+            result[f"{env_key}/num_episodes"] = len(turns_list)
+            total_turns += sum(turns_list)
+            total_episodes += len(turns_list)
+
+        # Overall metrics
+        result["avg_turns"] = total_turns / total_episodes if total_episodes > 0 else 0
+        result["total_episodes"] = total_episodes
+
+        return result
 
 
 def clear_caches():
