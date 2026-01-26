@@ -143,6 +143,7 @@ class FleetTaskEnv(BaseTextEnv):
         self.openenv_task_env: Optional[OpenEnvFleetTaskEnv] = None
         self.chat_history: ConversationType = []
         self.turns = 0
+        self.tool_calls = 0
         self.tools: List[Dict[str, Any]] = []
 
     def _normalize_task_config(self) -> Dict[str, Any]:
@@ -188,6 +189,7 @@ class FleetTaskEnv(BaseTextEnv):
 
         # Reset state
         self.turns = 0
+        self.tool_calls = 0
 
         # Get tools from observation (cached from __init__)
         self.tools = obs.get("tools", [])
@@ -255,6 +257,7 @@ You MUST call tools to complete the task. Only include <done> AFTER you have suc
 
         # Execute tool call if present via OpenEnv
         if tool_call and self.openenv_task_env:
+            self.tool_calls += 1
             # Build action dict for OpenEnv
             openenv_action = {
                 "tool": tool_call["name"],
@@ -339,6 +342,7 @@ You MUST call tools to complete the task. Only include <done> AFTER you have suc
             "task_key": self.task_key,
             "env_key": self.task_config.get("env_key") or self.task_config.get("env_id"),
             "turns": self.turns,
+            "tool_calls": self.tool_calls,
         }
 
     @staticmethod
@@ -347,29 +351,47 @@ You MUST call tools to complete the task. Only include <done> AFTER you have suc
         if not metrics:
             return {}
 
-        # Group turns by env_key
-        env_turns: Dict[str, List[int]] = {}
+        # Group by env_key
+        env_data: Dict[str, Dict[str, List[int]]] = {}
         for m in metrics:
             env_key = m.get("env_key", "unknown")
-            turns = m.get("turns", 0)
-            env_turns.setdefault(env_key, []).append(turns)
+            if env_key not in env_data:
+                env_data[env_key] = {"turns": [], "tool_calls": []}
+            env_data[env_key]["turns"].append(m.get("turns", 0))
+            env_data[env_key]["tool_calls"].append(m.get("tool_calls", 0))
 
         result: Dict[str, Any] = {}
         total_turns = 0
+        total_tool_calls = 0
         total_episodes = 0
 
         # Per-env_key metrics
-        for env_key, turns_list in env_turns.items():
-            avg = sum(turns_list) / len(turns_list)
-            result[f"{env_key}/avg_turns"] = avg
+        for env_key, data in env_data.items():
+            turns_list = data["turns"]
+            tool_calls_list = data["tool_calls"]
+
+            avg_turns = sum(turns_list) / len(turns_list)
+            avg_tool_calls = sum(tool_calls_list) / len(tool_calls_list)
+            # Tool calls per turn (avoid div by zero)
+            total_env_turns = sum(turns_list)
+            total_env_tool_calls = sum(tool_calls_list)
+            tool_calls_per_turn = total_env_tool_calls / total_env_turns if total_env_turns > 0 else 0
+
+            result[f"{env_key}/avg_turns"] = avg_turns
             result[f"{env_key}/min_turns"] = min(turns_list)
             result[f"{env_key}/max_turns"] = max(turns_list)
+            result[f"{env_key}/avg_tool_calls"] = avg_tool_calls
+            result[f"{env_key}/tool_calls_per_turn"] = tool_calls_per_turn
             result[f"{env_key}/num_episodes"] = len(turns_list)
-            total_turns += sum(turns_list)
+
+            total_turns += total_env_turns
+            total_tool_calls += total_env_tool_calls
             total_episodes += len(turns_list)
 
         # Overall metrics
         result["avg_turns"] = total_turns / total_episodes if total_episodes > 0 else 0
+        result["avg_tool_calls"] = total_tool_calls / total_episodes if total_episodes > 0 else 0
+        result["tool_calls_per_turn"] = total_tool_calls / total_turns if total_turns > 0 else 0
         result["total_episodes"] = total_episodes
 
         return result
