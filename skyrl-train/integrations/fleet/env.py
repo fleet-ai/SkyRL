@@ -212,11 +212,16 @@ class FleetTaskEnv(BaseTextEnv):
 ## Tool Call Format
 <tool_call>{{"name": "tool_name", "arguments": {{"param": "value"}}}}</tool_call>
 
-## Important
-You MUST call tools to complete the task. Only include <done> AFTER you have successfully completed the task using the tools above. Do not say <done> until you have actually performed the required actions."""
+## Response Format
+EVERY response MUST end with exactly ONE of:
+1. A tool call: <tool_call>...</tool_call> - to perform an action
+2. Done signal: <done> - ONLY when the task is fully complete
+
+NEVER respond with just a message. NEVER say "feel free to ask" or offer further help.
+If the task is complete, say <done>. Otherwise, make a tool call."""
         else:
             system_content = (
-                """You are a helpful agent. Complete the task. Only include <done> AFTER you have completed the task."""
+                """You are a helpful agent. Complete the task. When finished, respond with <done>. Do not offer further help or ask follow-up questions."""
             )
 
         # Build conversation with system prompt
