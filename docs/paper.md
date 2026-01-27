@@ -121,7 +121,27 @@ If a tool call returns an error:
 - Reduce to 50 tools: Save ~12,500 tokens
 - Reduce to 30 tools: Save ~17,500 tokens
 
-## 7. Future Directions
+## 7. Evaluation Plan
+
+### Cross-Environment Generalization
+**Goal**: Show that training on multiple environments yields improvement on held-out tasks and environments.
+
+**Metrics**:
+- Compare **step 0 pass@k** (pre-training) vs **best pass@k** (during training) for each task
+- Break down by `env_key` (github, booking, outlook) to measure per-environment improvement
+- Track held-out task performance to measure generalization vs memorization
+
+**Analysis**:
+| Metric | Description |
+|--------|-------------|
+| `pass@k_step0` | Success rate before any training (baseline model) |
+| `pass@k_best` | Best success rate achieved during training |
+| `delta_pass@k` | Improvement: `pass@k_best - pass@k_step0` |
+| `env_transfer` | Performance on held-out environments not seen during training |
+
+This will demonstrate whether cross-env training produces agents that generalize to new tasks and environments, rather than just memorizing training trajectories.
+
+## 8. Future Directions
 
 ### Short-term
 - **Tool pruning**: Consolidate GitHub tools from 100 → 30-50
@@ -136,7 +156,7 @@ If a tool call returns an error:
 - **Browser use (computer_use modality)**: Train on browser-based tasks with visual grounding
 - **Combined training**: Joint training on `tool_use` + `computer_use` for generalist agents that can use both APIs and browser interfaces
 
-## 8. References
+## 9. References
 
 - SkyRL repo: https://github.com/fleet-ai/SkyRL
 - OpenEnv repo: https://github.com/fleet-ai/OpenEnv
