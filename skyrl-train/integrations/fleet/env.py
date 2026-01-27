@@ -193,18 +193,16 @@ class FleetTaskEnv(BaseTextEnv):
 
         # Get tools from observation (cached from __init__)
         self.tools = obs.get("tools", [])
-        if self.tools:
-            logger.info(f"Task {self.task_key}: loaded {len(self.tools)} tools")
-        else:
-            logger.warning(f"Task {self.task_key}: no tools found in observation")
+        if not self.tools:
+            raise RuntimeError(f"Task {self.task_key}: no tools found in observation. Fleet env requires tools.")
+        logger.info(f"Task {self.task_key}: loaded {len(self.tools)} tools")
 
         # Build initial prompt with task instruction
         task_prompt = self.task_config.get("prompt", "")
 
         # Build system prompt with tool definitions
-        if self.tools:
-            tools_json = json.dumps(self.tools, indent=2)
-            system_content = f"""You are a helpful agent. Complete the task by calling tools.
+        tools_json = json.dumps(self.tools, indent=2)
+        system_content = f"""You are a helpful agent. Complete the task by calling tools.
 
 ## Available Tools
 {tools_json}
@@ -219,10 +217,6 @@ EVERY response MUST end with exactly ONE of:
 
 NEVER respond with just a message. NEVER say "feel free to ask" or offer further help.
 If the task is complete, say <done>. Otherwise, make a tool call."""
-        else:
-            system_content = (
-                """You are a helpful agent. Complete the task. When finished, respond with <done>. Do not offer further help or ask follow-up questions."""
-            )
 
         # Build conversation with system prompt
         system_message = {"role": "system", "content": system_content}
