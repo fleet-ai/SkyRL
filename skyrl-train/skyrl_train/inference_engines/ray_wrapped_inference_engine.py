@@ -161,7 +161,8 @@ def create_ray_wrapped_inference_engines(
             # Use .get() since OmegaConf DictConfig in struct mode doesn't support .pop()
             hf_overrides = dict(engine_init_kwargs.get("hf_overrides", {}) or {})
             if rope_scaling:
-                hf_overrides["rope_scaling"] = rope_scaling
+                # Convert to regular dict to avoid OmegaConf struct mode issues in vLLM
+                hf_overrides["rope_scaling"] = dict(rope_scaling)
                 if "max_model_len" not in engine_init_kwargs:
                     rope_factor = rope_scaling.get("factor", None)
                     rope_max_pos = rope_scaling.get("original_max_position_embeddings", None)
