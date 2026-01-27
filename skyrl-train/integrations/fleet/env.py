@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from omegaconf import DictConfig
@@ -24,6 +25,7 @@ from envs.fleet_env import FleetTaskEnv as OpenEnvFleetTaskEnv
 # Reduce MCP client log noise (uses loguru for logging)
 try:
     from loguru import logger as loguru_logger
+
     loguru_logger.disable("mcp")
 except ImportError:
     pass
@@ -202,13 +204,24 @@ class FleetTaskEnv(BaseTextEnv):
 
         # Build system prompt with tool definitions
         tools_json = json.dumps(self.tools, indent=2)
+        # Include current date so model uses correct year for date-related tasks
+        current_date = datetime.now().strftime("%Y-%m-%d")
         system_content = f"""You are a helpful agent. Complete the task by calling tools.
+
+## Current Date
+Today's date is {current_date}. When dates are mentioned without a year, assume the current year ({datetime.now().year}) or a future date.
 
 ## Available Tools
 {tools_json}
 
 ## Tool Call Format
 <tool_call>{{"name": "tool_name", "arguments": {{"param": "value"}}}}</tool_call>
+
+## Error Handling
+If a tool call returns an error:
+- Read the error message carefully
+- Do NOT repeat the same call with identical arguments
+- Change your approach: use different parameters, try a different tool, or break the task into smaller steps
 
 ## Response Format
 EVERY response MUST end with exactly ONE of:
