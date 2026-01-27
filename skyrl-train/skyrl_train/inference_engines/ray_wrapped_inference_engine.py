@@ -158,7 +158,8 @@ def create_ray_wrapped_inference_engines(
             rope_engine_kwargs = {}
             # rope_scaling and rope_theta must be passed via hf_overrides for vLLM >= 0.8.3
             # as they are HuggingFace model config parameters, not engine args
-            hf_overrides = engine_init_kwargs.pop("hf_overrides", {})
+            # Use .get() and convert to dict since engine_init_kwargs may be OmegaConf DictConfig
+            hf_overrides = dict(engine_init_kwargs.get("hf_overrides", {}) or {})
             if rope_scaling:
                 hf_overrides["rope_scaling"] = rope_scaling
                 if "max_model_len" not in engine_init_kwargs:
