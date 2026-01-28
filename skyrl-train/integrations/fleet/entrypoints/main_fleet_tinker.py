@@ -12,9 +12,20 @@ Usage:
         --eval-dataset-file /path/to/validation.parquet
 
 Environment Variables:
-    TINKER_API_URL: Tinker service URL (optional, uses default if not set)
+    TINKER_API_URL: Tinker service URL (required for hosted Tinker)
+    TINKER_API_KEY: Tinker API key for authentication
     FLEET_API_KEY: Fleet API key for environment access
     WANDB_API_KEY: Weights & Biases API key for logging
+
+Architecture:
+    1. Load tasks from JSON file (same format as SkyRL Fleet integration)
+    2. For each training step:
+       a. Save current model weights for sampling
+       b. Create SamplingClient from Tinker
+       c. Collect rollouts using FleetTaskEnv (OpenEnv) + Tinker inference
+       d. Compute GRPO advantages
+       e. Train using Tinker's forward_backward + optim_step
+    3. Checkpoints saved via Tinker API
 """
 
 import asyncio
@@ -30,6 +41,7 @@ import numpy as np
 import tinker
 import torch
 import wandb
+from omegaconf import DictConfig
 from tinker import types
 from tinker.types.tensor_data import TensorData
 from transformers import AutoTokenizer
@@ -132,9 +144,9 @@ async def collect_fleet_rollout(
         raise ValueError("FLEET_API_KEY environment variable must be set")
 
     task_key = task_config.get("task_key") or task_config.get("key")
-    env_config = {"tasks_file": tasks_file, "api_key": api_key}
 
-    # Create Fleet environment
+    # Create Fleet environment with DictConfig (required by SkyRL's FleetTaskEnv)
+    env_config = DictConfig({"tasks_file": tasks_file, "api_key": api_key})
     env = FleetTaskEnv(
         env_config=env_config,
         extras={"task_key": task_key, "max_turns": max_turns},
@@ -370,7 +382,17 @@ async def main(
         logger.info(f"Loaded {len(eval_dataset)} eval samples")
 
     # Setup Tinker
-    service_client = tinker.ServiceClient()
+    # ServiceClient can take base_url and api_key from environment or explicit args
+    tinker_url = os.environ.get("TINKER_API_URL")
+    tinker_api_key = os.environ.get("TINKER_API_KEY")
+
+    service_client_kwargs = {}
+    if tinker_url:
+        service_client_kwargs["base_url"] = tinker_url
+    if tinker_api_key:
+        service_client_kwargs["api_key"] = tinker_api_key
+
+    service_client = tinker.ServiceClient(**service_client_kwargs)
     training_client = await service_client.create_lora_training_client_async(base_model=model_name, rank=lora_rank)
 
     if load_state_path:
@@ -454,8 +476,23 @@ async def main(
         metrics["reward/mean"] = np.mean(rewards)
         metrics["reward/max"] = np.max(rewards)
         metrics["reward/min"] = np.min(rewards)
+        metrics["advantage/mean"] = np.mean(advantages)
+        metrics["advantage/std"] = np.std(advantages)
         metrics["rollouts/valid"] = len(valid_rollouts)
         metrics["rollouts/total"] = len(rollouts)
+
+        # Log rollout metrics (turns, tool_calls per env)
+        rollout_metrics = {}
+        for r in valid_rollouts:
+            env_key = r.get("env_key", "unknown")
+            if f"{env_key}/turns" not in rollout_metrics:
+                rollout_metrics[f"{env_key}/turns"] = []
+                rollout_metrics[f"{env_key}/tool_calls"] = []
+            rollout_metrics[f"{env_key}/turns"].append(r.get("turns", 0))
+            rollout_metrics[f"{env_key}/tool_calls"].append(r.get("tool_calls", 0))
+
+        for key, values in rollout_metrics.items():
+            wandb.log({f"rollout/{key}": np.mean(values)}, step=step)
 
         # Prepare training data
         training_datums = []
