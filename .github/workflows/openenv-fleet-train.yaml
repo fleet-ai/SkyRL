@@ -173,30 +173,33 @@ jobs:
           token: ${{ secrets.SLACK_BOT_TOKEN }}
           payload: |
             {
-              "channel": "#fleet-training-runs",
-              "text": "🚀 SkyRL Training Run Started",
+              "channel": "#fleet-training-runs-test",
+              "text": "🚀 Training Run Started",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "🚀 SkyRL Training Run Started" }
+                  "text": { "type": "plain_text", "text": "🚀 Training Run Started" }
                 },
                 {
                   "type": "section",
                   "fields": [
                     { "type": "mrkdwn", "text": "*Run:*\n`${{ steps.cluster.outputs.name }}`" },
+                    { "type": "mrkdwn", "text": "*Backend:*\n`SkyRL`" },
                     { "type": "mrkdwn", "text": "*Task:*\n`${{ inputs.task_name }}`" },
-                    { "type": "mrkdwn", "text": "*Modality:*\n`${{ inputs.modality }}`" },
-                    { "type": "mrkdwn", "text": "*Env Filter:*\n`${{ inputs.env_key || 'all' }}`" }
+                    { "type": "mrkdwn", "text": "*Modality:*\n`${{ inputs.modality }}`" }
                   ]
                 },
                 {
                   "type": "section",
-                  "text": { "type": "mrkdwn", "text": "*Status:* Training started\n*WandB Run:* `${{ steps.cluster.outputs.wandb_run_name }}`\n*Dashboard:* <https://wandb.ai/thefleet/fleet-task-grpo|View Project>" }
+                  "fields": [
+                    { "type": "mrkdwn", "text": "*Env Filter:*\n`${{ inputs.env_key || 'all' }}`" },
+                    { "type": "mrkdwn", "text": "*WandB Run:*\n`${{ steps.cluster.outputs.wandb_run_name }}`" }
+                  ]
                 },
                 {
                   "type": "context",
                   "elements": [
-                    { "type": "mrkdwn", "text": "Triggered by: ${{ github.actor }} | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow>" }
+                    { "type": "mrkdwn", "text": "Triggered by: ${{ github.actor }} | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow> | <https://wandb.ai/thefleet/fleet-task-grpo|WandB>" }
                   ]
                 }
               ]
@@ -245,20 +248,20 @@ jobs:
           token: ${{ secrets.SLACK_BOT_TOKEN }}
           payload: |
             {
-              "channel": "#fleet-training-runs",
+              "channel": "#fleet-training-runs-test",
               "thread_ts": "${{ steps.slack_start.outputs.ts }}",
-              "text": "✅ SkyRL Training Completed",
+              "text": "✅ Training Completed",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "✅ SkyRL Training Completed" }
+                  "text": { "type": "plain_text", "text": "✅ Training Completed" }
                 },
                 {
                   "type": "section",
                   "fields": [
                     { "type": "mrkdwn", "text": "*Run:*\n`${{ steps.cluster.outputs.name }}`" },
+                    { "type": "mrkdwn", "text": "*Backend:*\n`SkyRL`" },
                     { "type": "mrkdwn", "text": "*Task:*\n`${{ inputs.task_name }}`" },
-                    { "type": "mrkdwn", "text": "*Modality:*\n`${{ inputs.modality }}`" },
                     { "type": "mrkdwn", "text": "*Status:*\n`${{ steps.stream.outputs.cluster_status }}`" }
                   ]
                 },
@@ -283,20 +286,20 @@ jobs:
           token: ${{ secrets.SLACK_BOT_TOKEN }}
           payload: |
             {
-              "channel": "#fleet-training-runs",
+              "channel": "#fleet-training-runs-test",
               "thread_ts": "${{ steps.slack_start.outputs.ts }}",
-              "text": "❌ SkyRL Training Failed",
+              "text": "❌ Training Failed",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "❌ SkyRL Training Failed" }
+                  "text": { "type": "plain_text", "text": "❌ Training Failed" }
                 },
                 {
                   "type": "section",
                   "fields": [
                     { "type": "mrkdwn", "text": "*Run:*\n`${{ steps.cluster.outputs.name }}`" },
+                    { "type": "mrkdwn", "text": "*Backend:*\n`SkyRL`" },
                     { "type": "mrkdwn", "text": "*Task:*\n`${{ inputs.task_name }}`" },
-                    { "type": "mrkdwn", "text": "*Modality:*\n`${{ inputs.modality }}`" },
                     { "type": "mrkdwn", "text": "*Status:*\n`${{ steps.stream.outputs.cluster_status || 'FAILED' }}`" }
                   ]
                 },
@@ -321,20 +324,20 @@ jobs:
           token: ${{ secrets.SLACK_BOT_TOKEN }}
           payload: |
             {
-              "channel": "#fleet-training-runs",
+              "channel": "#fleet-training-runs-test",
               "thread_ts": "${{ steps.slack_start.outputs.ts }}",
-              "text": "⚠️ SkyRL Training Cancelled",
+              "text": "⚠️ Training Cancelled",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "⚠️ SkyRL Training Cancelled" }
+                  "text": { "type": "plain_text", "text": "⚠️ Training Cancelled" }
                 },
                 {
                   "type": "section",
                   "fields": [
                     { "type": "mrkdwn", "text": "*Run:*\n`${{ steps.cluster.outputs.name }}`" },
+                    { "type": "mrkdwn", "text": "*Backend:*\n`SkyRL`" },
                     { "type": "mrkdwn", "text": "*Task:*\n`${{ inputs.task_name }}`" },
-                    { "type": "mrkdwn", "text": "*Modality:*\n`${{ inputs.modality }}`" },
                     { "type": "mrkdwn", "text": "*Status:*\n`CANCELLED`" }
                   ]
                 },
