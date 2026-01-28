@@ -685,8 +685,23 @@ async def main(
 
         metrics["time/rollout"] = time.time() - rollout_start
 
-        # Filter valid rollouts
-        valid_rollouts = [r for r in rollouts if r.get("response_ids") and not r.get("error")]
+        # Filter valid rollouts and log invalid ones
+        valid_rollouts = []
+        invalid_rollouts = []
+        for r in rollouts:
+            if r.get("response_ids") and not r.get("error"):
+                valid_rollouts.append(r)
+            else:
+                invalid_rollouts.append(r)
+
+        if invalid_rollouts:
+            for r in invalid_rollouts:
+                task_key = r.get("task_key", "unknown")
+                error = r.get("error", "no response_ids")
+                stop_reason = r.get("stop_reason", "unknown")
+                logger.warning(f"Step {step}: Invalid rollout for {task_key}: {error} (stop_reason={stop_reason})")
+            metrics["rollouts/invalid"] = len(invalid_rollouts)
+
         if not valid_rollouts:
             logger.warning(f"Step {step}: No valid rollouts, skipping")
             continue
