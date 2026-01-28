@@ -463,39 +463,48 @@ async def collect_batch_rollouts(
     max_generate_length: int = 2048,
     max_input_length: int = 30720,
     n_samples_per_prompt: int = 1,
+    max_concurrent: int = 4,
 ) -> List[Dict[str, Any]]:
-    """Collect rollouts for a batch of tasks in parallel."""
+    """Collect rollouts for a batch of tasks with limited concurrency.
+
+    Args:
+        max_concurrent: Maximum number of concurrent Fleet environment connections.
+            Fleet MCP connections can timeout if too many are opened simultaneously.
+    """
+    # Semaphore to limit concurrent Fleet environment connections
+    semaphore = asyncio.Semaphore(max_concurrent)
 
     async def collect_single_rollout(task_config: Dict[str, Any], index: int) -> tuple:
-        """Wrapper to collect a single rollout with error handling."""
-        rollout_start = time.time()
-        try:
-            rollout = await collect_fleet_rollout(
-                task_config=task_config,
-                tasks_file=tasks_file,
-                sampling_client=sampling_client,
-                tokenizer=tokenizer,
-                max_turns=max_turns,
-                max_generate_length=max_generate_length,
-                max_input_length=max_input_length,
-            )
-            return index, rollout
-        except Exception as e:
-            logger.error(f"Failed to collect rollout for {task_config.get('task_key')}: {e}")
-            return index, {
-                "prompt_ids": [],
-                "response_ids": [],
-                "logprobs": [],
-                "loss_mask": [],
-                "reward": 0.0,
-                "task_key": task_config.get("task_key"),
-                "env_key": task_config.get("env_key", "unknown"),
-                "turns": 0,
-                "tool_calls": 0,
-                "stop_reason": "error",
-                "error": str(e),
-                "duration": time.time() - rollout_start,
-            }
+        """Wrapper to collect a single rollout with error handling and concurrency limit."""
+        async with semaphore:
+            rollout_start = time.time()
+            try:
+                rollout = await collect_fleet_rollout(
+                    task_config=task_config,
+                    tasks_file=tasks_file,
+                    sampling_client=sampling_client,
+                    tokenizer=tokenizer,
+                    max_turns=max_turns,
+                    max_generate_length=max_generate_length,
+                    max_input_length=max_input_length,
+                )
+                return index, rollout
+            except Exception as e:
+                logger.error(f"Failed to collect rollout for {task_config.get('task_key')}: {e}")
+                return index, {
+                    "prompt_ids": [],
+                    "response_ids": [],
+                    "logprobs": [],
+                    "loss_mask": [],
+                    "reward": 0.0,
+                    "task_key": task_config.get("task_key"),
+                    "env_key": task_config.get("env_key", "unknown"),
+                    "turns": 0,
+                    "tool_calls": 0,
+                    "stop_reason": "error",
+                    "error": str(e),
+                    "duration": time.time() - rollout_start,
+                }
 
     # Create all rollout tasks (batch_size * n_samples_per_prompt)
     tasks = []
@@ -506,12 +515,13 @@ async def collect_batch_rollouts(
             index += 1
 
     total = len(tasks)
+    logger.info(f"  Collecting {total} rollouts (max {max_concurrent} concurrent)...")
     rollouts = [None] * total
     completed = 0
     last_logged = 0
     log_interval = max(1, total // 4)  # Log at ~25%, 50%, 75%, 100%
 
-    # Run all rollouts in parallel with progress logging
+    # Run rollouts with limited concurrency via semaphore
     for coro in asyncio.as_completed(tasks):
         idx, rollout = await coro
         rollouts[idx] = rollout
