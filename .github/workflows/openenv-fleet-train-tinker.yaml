@@ -146,11 +146,11 @@ jobs:
           payload: |
             {
               "channel": "#fleet-training-runs",
-              "text": "🚀 SkyRL Training Run Started",
+              "text": "🚀 Tinker Training Run Started",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "🚀 SkyRL Training Run Started" }
+                  "text": { "type": "plain_text", "text": "🚀 Tinker Training Run Started" }
                 },
                 {
                   "type": "section",
@@ -209,11 +209,11 @@ jobs:
             {
               "channel": "#fleet-training-runs",
               "thread_ts": "${{ steps.slack_start.outputs.ts }}",
-              "text": "✅ SkyRL Training Completed",
+              "text": "✅ Tinker Training Completed",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "✅ SkyRL Training Completed" }
+                  "text": { "type": "plain_text", "text": "✅ Tinker Training Completed" }
                 },
                 {
                   "type": "section",
@@ -247,11 +247,11 @@ jobs:
             {
               "channel": "#fleet-training-runs",
               "thread_ts": "${{ steps.slack_start.outputs.ts }}",
-              "text": "❌ SkyRL Training Failed",
+              "text": "❌ Tinker Training Failed",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "❌ SkyRL Training Failed" }
+                  "text": { "type": "plain_text", "text": "❌ Tinker Training Failed" }
                 },
                 {
                   "type": "section",
@@ -285,11 +285,11 @@ jobs:
             {
               "channel": "#fleet-training-runs",
               "thread_ts": "${{ steps.slack_start.outputs.ts }}",
-              "text": "⚠️ SkyRL Training Cancelled",
+              "text": "⚠️ Tinker Training Cancelled",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "⚠️ SkyRL Training Cancelled" }
+                  "text": { "type": "plain_text", "text": "⚠️ Tinker Training Cancelled" }
                 },
                 {
                   "type": "section",
@@ -312,7 +312,7 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "## SkyRL Training - ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Tinker Fleet Training - ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
