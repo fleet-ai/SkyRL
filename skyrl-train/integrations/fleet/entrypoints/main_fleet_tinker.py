@@ -536,6 +536,7 @@ async def main(
     max_turns: int = 50,
     max_generate_length: int = 2048,
     max_input_length: int = 30720,
+    max_sequence_length: int = 32768,
     n_samples_per_prompt: int = 4,
     save_every: int = 10,
     eval_every: int = 20,
@@ -581,6 +582,7 @@ async def main(
             "max_turns": max_turns,
             "max_generate_length": max_generate_length,
             "max_input_length": max_input_length,
+            "max_sequence_length": max_sequence_length,
             "n_samples_per_prompt": n_samples_per_prompt,
         },
     )
@@ -712,8 +714,9 @@ async def main(
         for key, values in rollout_metrics.items():
             metrics[key] = np.mean(values)
 
-        # Prepare training data
+        # Prepare training data (truncate sequences exceeding model's max length)
         training_datums = []
+        truncated_overlong = 0
         for idx, rollout in enumerate(valid_rollouts):
             prompt_ids = rollout["prompt_ids"]
             response_ids = rollout["response_ids"]
@@ -722,6 +725,16 @@ async def main(
 
             full_sequence = prompt_ids + response_ids
             prompt_len = len(prompt_ids)
+
+            # Truncate and zero out loss mask for overlong sequences (DAPO overlong filtering)
+            is_overlong = len(full_sequence) > max_sequence_length
+            if is_overlong:
+                truncated_overlong += 1
+                # Truncate to fit model's context window
+                full_sequence = full_sequence[:max_sequence_length]
+                response_len = len(full_sequence) - prompt_len
+                logprobs = logprobs[:response_len] if logprobs else []
+                loss_mask_data = [0] * response_len  # Zero out - won't contribute to loss
 
             # Target tokens (shifted by 1)
             target_tokens = full_sequence[1:]
@@ -751,6 +764,14 @@ async def main(
                 },
             )
             training_datums.append(datum)
+
+        if truncated_overlong > 0:
+            logger.info(f"Step {step}: Truncated {truncated_overlong} overlong sequences (loss mask zeroed)")
+            metrics["rollouts/truncated_overlong"] = truncated_overlong
+
+        if not training_datums:
+            logger.warning(f"Step {step}: No valid training sequences after filtering, skipping")
+            continue
 
         # Training step
         logger.info(f"Step {step}: Training on {len(training_datums)} sequences...")
@@ -835,6 +856,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-turns", type=int, default=50)
     parser.add_argument("--max-generate-length", type=int, default=2048, help="Max tokens per generation")
     parser.add_argument("--max-input-length", type=int, default=30720, help="Max context length before ending rollout")
+    parser.add_argument("--max-sequence-length", type=int, default=32768, help="Max sequence length for training")
     parser.add_argument("--n-samples-per-prompt", type=int, default=4)
     parser.add_argument("--save-every", type=int, default=10)
     parser.add_argument("--eval-every", type=int, default=20)
@@ -859,6 +881,7 @@ if __name__ == "__main__":
             max_turns=args.max_turns,
             max_generate_length=args.max_generate_length,
             max_input_length=args.max_input_length,
+            max_sequence_length=args.max_sequence_length,
             n_samples_per_prompt=args.n_samples_per_prompt,
             save_every=args.save_every,
             eval_every=args.eval_every,
