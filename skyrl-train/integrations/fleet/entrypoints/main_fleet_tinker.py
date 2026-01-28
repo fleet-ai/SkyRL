@@ -282,6 +282,8 @@ async def collect_fleet_rollout(
         max_generate_length: Max tokens per generation step.
         max_input_length: Max context length before ending rollout (matching SkyRL).
     """
+    rollout_start = time.time()
+
     api_key = os.environ.get("FLEET_API_KEY")
     if not api_key:
         raise ValueError("FLEET_API_KEY environment variable must be set")
@@ -440,6 +442,7 @@ async def collect_fleet_rollout(
             "turns": turns,
             "tool_calls": tool_calls,
             "stop_reason": stop_reason,
+            "duration": time.time() - rollout_start,
         }
 
     finally:
@@ -461,6 +464,7 @@ async def collect_batch_rollouts(
 
     for task_config in batch:
         for _ in range(n_samples_per_prompt):
+            rollout_start = time.time()
             try:
                 rollout = await collect_fleet_rollout(
                     task_config=task_config,
@@ -487,6 +491,7 @@ async def collect_batch_rollouts(
                         "tool_calls": 0,
                         "stop_reason": "error",
                         "error": str(e),
+                        "duration": time.time() - rollout_start,
                     }
                 )
 
@@ -707,15 +712,22 @@ async def main(
         per_env_metrics = compute_per_env_metrics(valid_rollouts, n_samples_per_prompt)
         metrics.update(per_env_metrics)
 
-        # Log rollout metrics (turns, tool_calls per env)
+        # Log rollout metrics (turns, tool_calls, duration per env)
         rollout_metrics = defaultdict(list)
         for r in valid_rollouts:
             env_key = r.get("env_key", "unknown").replace("/", "_")
             rollout_metrics[f"rollout/{env_key}/turns"].append(r.get("turns", 0))
             rollout_metrics[f"rollout/{env_key}/tool_calls"].append(r.get("tool_calls", 0))
+            rollout_metrics[f"rollout/{env_key}/duration"].append(r.get("duration", 0.0))
 
         for key, values in rollout_metrics.items():
             metrics[key] = np.mean(values)
+
+        # Log overall rollout duration stats
+        durations = [r.get("duration", 0.0) for r in valid_rollouts]
+        metrics["rollout/avg_duration"] = np.mean(durations)
+        metrics["rollout/max_duration"] = np.max(durations)
+        metrics["rollout/min_duration"] = np.min(durations)
 
         # Apply DAPO overlong filtering (zero out loss mask if response doesn't end with EOS)
         all_response_ids = [r["response_ids"] for r in valid_rollouts]
