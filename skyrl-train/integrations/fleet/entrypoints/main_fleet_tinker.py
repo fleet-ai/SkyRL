@@ -60,6 +60,9 @@ from torch.utils.data import DataLoader
 # (SkyRL's wrapper uses asyncio.run() which can't be called from async context)
 from envs.fleet_env import FleetTaskEnv as OpenEnvFleetTaskEnv
 
+# Import SkyRL's overlong filtering for parity
+from skyrl_train.generators.utils import apply_overlong_filtering
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARN)
@@ -714,27 +717,31 @@ async def main(
         for key, values in rollout_metrics.items():
             metrics[key] = np.mean(values)
 
-        # Prepare training data (truncate sequences exceeding model's max length)
+        # Apply DAPO overlong filtering (zero out loss mask if response doesn't end with EOS)
+        all_response_ids = [r["response_ids"] for r in valid_rollouts]
+        all_loss_masks = [r["loss_mask"] for r in valid_rollouts]
+        filtered_loss_masks = apply_overlong_filtering(all_loss_masks, all_response_ids, tokenizer.eos_token_id)
+
+        # Prepare training data (also truncate sequences exceeding model's max length)
         training_datums = []
         truncated_overlong = 0
         for idx, rollout in enumerate(valid_rollouts):
             prompt_ids = rollout["prompt_ids"]
             response_ids = rollout["response_ids"]
             logprobs = rollout["logprobs"]
-            loss_mask_data = rollout["loss_mask"]
+            loss_mask_data = filtered_loss_masks[idx]  # Use filtered loss mask
 
             full_sequence = prompt_ids + response_ids
             prompt_len = len(prompt_ids)
 
-            # Truncate and zero out loss mask for overlong sequences (DAPO overlong filtering)
-            is_overlong = len(full_sequence) > max_sequence_length
-            if is_overlong:
+            # Truncate sequences exceeding model's max length for Tinker API
+            if len(full_sequence) > max_sequence_length:
                 truncated_overlong += 1
-                # Truncate to fit model's context window
                 full_sequence = full_sequence[:max_sequence_length]
                 response_len = len(full_sequence) - prompt_len
+                response_ids = response_ids[:response_len]
                 logprobs = logprobs[:response_len] if logprobs else []
-                loss_mask_data = [0] * response_len  # Zero out - won't contribute to loss
+                loss_mask_data = loss_mask_data[:response_len]
 
             # Target tokens (shifted by 1)
             target_tokens = full_sequence[1:]
