@@ -63,8 +63,12 @@ from integrations.fleet.env import FleetTaskEnv
 # Import SkyRL's overlong filtering for parity
 from skyrl_train.generators.utils import apply_overlong_filtering
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("mcp").setLevel(logging.WARNING)
 
