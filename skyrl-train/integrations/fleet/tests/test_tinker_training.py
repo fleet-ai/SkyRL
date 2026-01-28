@@ -5,7 +5,6 @@ Run with:
     python -m pytest skyrl-train/integrations/fleet/tests/test_tinker_training.py -v
 """
 
-import pytest
 import sys
 import os
 
