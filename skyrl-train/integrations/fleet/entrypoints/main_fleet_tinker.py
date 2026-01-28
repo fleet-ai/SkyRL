@@ -169,6 +169,64 @@ def compute_per_env_metrics(rollouts: List[Dict[str, Any]], n_samples_per_prompt
     return metrics
 
 
+def compute_rollout_metrics(
+    rollouts: List[Dict[str, Any]],
+    valid_rollouts: List[Dict[str, Any]],
+    rewards: List[float],
+    advantages: List[float],
+    n_samples_per_prompt: int,
+) -> Dict[str, Any]:
+    """
+    Compute all rollout metrics (matching SkyRL's pattern).
+
+    Args:
+        rollouts: All rollouts (including failed ones)
+        valid_rollouts: Only valid rollouts
+        rewards: Rewards for valid rollouts
+        advantages: GRPO advantages for valid rollouts
+        n_samples_per_prompt: Number of samples per prompt
+
+    Returns:
+        Dict of metrics for wandb logging
+    """
+    metrics = {}
+
+    # Core reward metrics
+    pass_at_n = compute_pass_at_n(valid_rollouts, n_samples_per_prompt)
+    mean_positive = np.mean([r for r in rewards if r > 0]) if any(r > 0 for r in rewards) else 0.0
+
+    metrics[f"reward/avg_pass_at_{n_samples_per_prompt}"] = pass_at_n
+    metrics["reward/avg_raw_reward"] = np.mean(rewards)
+    metrics["reward/mean_positive_reward"] = mean_positive
+    metrics["advantage/mean"] = np.mean(advantages)
+    metrics["advantage/std"] = np.std(advantages)
+    metrics["rollouts/valid"] = len(valid_rollouts)
+    metrics["rollouts/total"] = len(rollouts)
+
+    # Per-environment metrics
+    per_env_metrics = compute_per_env_metrics(valid_rollouts, n_samples_per_prompt)
+    metrics.update(per_env_metrics)
+
+    # Per-environment rollout stats (turns, tool_calls, duration)
+    rollout_stats = defaultdict(list)
+    for r in valid_rollouts:
+        env_key = r.get("env_key", "unknown").replace("/", "_")
+        rollout_stats[f"rollout/{env_key}/turns"].append(r.get("turns", 0))
+        rollout_stats[f"rollout/{env_key}/tool_calls"].append(r.get("tool_calls", 0))
+        rollout_stats[f"rollout/{env_key}/duration"].append(r.get("duration", 0.0))
+
+    for key, values in rollout_stats.items():
+        metrics[key] = np.mean(values)
+
+    # Overall rollout duration stats
+    durations = [r.get("duration", 0.0) for r in valid_rollouts]
+    metrics["rollout/avg_duration"] = np.mean(durations)
+    metrics["rollout/max_duration"] = np.max(durations)
+    metrics["rollout/min_duration"] = np.min(durations)
+
+    return metrics
+
+
 def prepare_training_data(
     rollouts: List[Dict[str, Any]],
     advantages: List[float],
@@ -637,38 +695,15 @@ async def main(
         rewards = [r["reward"] for r in valid_rollouts]
         advantages = compute_advantages_grpo(rewards, group_size=n_samples_per_prompt, normalize=True)
 
-        # Compute metrics matching SkyRL
-        pass_at_n = compute_pass_at_n(valid_rollouts, n_samples_per_prompt)
-        mean_positive = np.mean([r for r in rewards if r > 0]) if any(r > 0 for r in rewards) else 0.0
-
-        metrics[f"reward/avg_pass_at_{n_samples_per_prompt}"] = pass_at_n
-        metrics["reward/avg_raw_reward"] = np.mean(rewards)
-        metrics["reward/mean_positive_reward"] = mean_positive
-        metrics["advantage/mean"] = np.mean(advantages)
-        metrics["advantage/std"] = np.std(advantages)
-        metrics["rollouts/valid"] = len(valid_rollouts)
-        metrics["rollouts/total"] = len(rollouts)
-
-        # Per-environment metrics
-        per_env_metrics = compute_per_env_metrics(valid_rollouts, n_samples_per_prompt)
-        metrics.update(per_env_metrics)
-
-        # Log rollout metrics (turns, tool_calls, duration per env)
-        rollout_metrics = defaultdict(list)
-        for r in valid_rollouts:
-            env_key = r.get("env_key", "unknown").replace("/", "_")
-            rollout_metrics[f"rollout/{env_key}/turns"].append(r.get("turns", 0))
-            rollout_metrics[f"rollout/{env_key}/tool_calls"].append(r.get("tool_calls", 0))
-            rollout_metrics[f"rollout/{env_key}/duration"].append(r.get("duration", 0.0))
-
-        for key, values in rollout_metrics.items():
-            metrics[key] = np.mean(values)
-
-        # Log overall rollout duration stats
-        durations = [r.get("duration", 0.0) for r in valid_rollouts]
-        metrics["rollout/avg_duration"] = np.mean(durations)
-        metrics["rollout/max_duration"] = np.max(durations)
-        metrics["rollout/min_duration"] = np.min(durations)
+        # Compute all rollout metrics
+        rollout_metrics = compute_rollout_metrics(
+            rollouts=rollouts,
+            valid_rollouts=valid_rollouts,
+            rewards=rewards,
+            advantages=advantages,
+            n_samples_per_prompt=n_samples_per_prompt,
+        )
+        metrics.update(rollout_metrics)
 
         # Prepare training data (DAPO filtering + truncation + datum creation)
         training_datums, truncated_count = prepare_training_data(
@@ -702,7 +737,7 @@ async def main(
         # Log metrics
         wandb.log(metrics, step=step)
         logger.info(
-            f"Step {step}: pass@{n_samples_per_prompt}={pass_at_n:.3f}, "
+            f"Step {step}: pass@{n_samples_per_prompt}={metrics[f'reward/avg_pass_at_{n_samples_per_prompt}']:.3f}, "
             f"reward={metrics['reward/avg_raw_reward']:.3f}, time={metrics['time/total']:.1f}s"
         )
 

@@ -235,11 +235,19 @@ class TestPrepareTrainingSequence:
 
 
 class TestCombinedFlow:
-    """Tests for combined DAPO filtering + truncation flow."""
+    """
+    Tests for combined DAPO filtering + truncation flow.
+
+    These tests validate the pattern used by prepare_training_data() in
+    main_fleet_tinker.py, which:
+    1. Applies DAPO overlong filtering (zeros mask if no EOS)
+    2. Truncates sequences to max_sequence_length
+    3. Builds training datums (Tinker-specific, not tested here)
+    """
 
     def test_dapo_then_truncate(self):
         """DAPO filtering should be applied, then truncation."""
-        # Simulate the flow in main_fleet_tinker.py
+        # Simulate the flow in prepare_training_data()
         response_ids = [1, 2, 3, 4, 5]  # Doesn't end with EOS
         loss_mask = [1, 1, 1, 1, 1]
         eos_token_id = 99
@@ -290,3 +298,76 @@ class TestCombinedFlow:
         assert len(trunc_mask) == 3
         assert trunc_mask == [1, 1, 1]  # Original values preserved
         assert was_truncated is True
+
+    def test_batch_processing(self):
+        """Test processing multiple rollouts (as prepare_training_data does)."""
+        eos_token_id = 99
+
+        # Simulate batch of rollouts with mixed completion status
+        rollouts = [
+            {
+                "prompt_ids": [1, 2, 3],
+                "response_ids": [4, 5, 6],  # No EOS - should be zeroed
+                "logprobs": [-0.1, -0.2, -0.3],
+                "loss_mask": [1, 1, 1],
+            },
+            {
+                "prompt_ids": [10, 11],
+                "response_ids": [12, 13, 99],  # Ends with EOS - should be preserved
+                "logprobs": [-0.4, -0.5, -0.6],
+                "loss_mask": [1, 1, 1],
+            },
+            {
+                "prompt_ids": [20, 21, 22],
+                "response_ids": [23, 24, 25, 26, 27],  # No EOS, needs truncation
+                "logprobs": [-0.1, -0.2, -0.3, -0.4, -0.5],
+                "loss_mask": [1, 1, 1, 1, 1],
+            },
+        ]
+        max_sequence_length = 6
+
+        # Step 1: Apply DAPO filtering to all rollouts
+        all_response_ids = [r["response_ids"] for r in rollouts]
+        all_loss_masks = [r["loss_mask"] for r in rollouts]
+        filtered_masks = apply_overlong_filtering_simple(all_loss_masks, all_response_ids, eos_token_id)
+
+        # Rollout 0: No EOS -> zeroed
+        assert filtered_masks[0] == [0, 0, 0]
+        # Rollout 1: Has EOS -> preserved
+        assert filtered_masks[1] == [1, 1, 1]
+        # Rollout 2: No EOS -> zeroed
+        assert filtered_masks[2] == [0, 0, 0, 0, 0]
+
+        # Step 2: Prepare each sequence with truncation
+        results = []
+        for idx, rollout in enumerate(rollouts):
+            full_seq, trunc_logprobs, trunc_mask, was_truncated = prepare_training_sequence(
+                rollout["prompt_ids"],
+                rollout["response_ids"],
+                rollout["logprobs"],
+                filtered_masks[idx],
+                max_sequence_length,
+            )
+            results.append(
+                {
+                    "full_seq": full_seq,
+                    "trunc_mask": trunc_mask,
+                    "was_truncated": was_truncated,
+                }
+            )
+
+        # Rollout 0: 3+3=6, no truncation needed, mask zeroed
+        assert len(results[0]["full_seq"]) == 6
+        assert results[0]["trunc_mask"] == [0, 0, 0]
+        assert results[0]["was_truncated"] is False
+
+        # Rollout 1: 2+3=5, no truncation needed, mask preserved
+        assert len(results[1]["full_seq"]) == 5
+        assert results[1]["trunc_mask"] == [1, 1, 1]
+        assert results[1]["was_truncated"] is False
+
+        # Rollout 2: 3+5=8 > 6, truncated to 6, mask zeroed
+        assert len(results[2]["full_seq"]) == 6
+        assert len(results[2]["trunc_mask"]) == 3  # 6 - 3 = 3 response tokens
+        assert results[2]["trunc_mask"] == [0, 0, 0]
+        assert results[2]["was_truncated"] is True
