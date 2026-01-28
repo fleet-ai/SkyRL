@@ -9,13 +9,14 @@ This document describes how Fleet environments integrate with SkyRL and Tinker t
 │                              Training Loops                                  │
 ├───────────────────────────────────┬─────────────────────────────────────────┤
 │      SkyRL Training Loop          │         Tinker Training Loop            │
-│   (skyrl_gym_generator.py)        │      (main_fleet_tinker.py)             │
+│   (grpo_trainer.py +              │      (main_fleet_tinker.py)             │
+│    skyrl_gym_generator.py)        │                                         │
 │                                   │                                         │
-│  generate_batched()               │  main()                                 │
-│    • Runs inference locally       │    • Uses Tinker hosted inference       │
-│    • Batches prompts for vLLM     │    • Async rollout collection           │
-│    • Computes GRPO advantages     │    • prepare_training_data()            │
-│    • Builds training batch        │    • Calls Tinker forward_backward()    │
+│  • generate_batched() collects    │  • collect_batch_rollouts() collects    │
+│    rollouts via vLLM (GPU)        │    rollouts via Tinker inference API    │
+│  • Computes GRPO advantages       │  • Computes GRPO advantages             │
+│  • Trainer runs forward/backward  │  • prepare_training_data() builds batch │
+│    on local GPU                   │  • Tinker forward_backward() (hosted)   │
 │                                   │                                         │
 └───────────────────────────────────┴─────────────────────────────────────────┘
                                     │
@@ -91,8 +92,8 @@ This document describes how Fleet environments integrate with SkyRL and Tinker t
 
 | Layer | Component | Purpose |
 |-------|-----------|---------|
-| Training | `main_fleet_tinker.py` | Tinker-based training with async rollout collection |
-| Training | `skyrl_gym_generator.py` | SkyRL's standard training with local vLLM inference |
+| Training | `main_fleet_tinker.py` | Tinker-based training: hosted inference + training |
+| Training | `grpo_trainer.py` + `skyrl_gym_generator.py` | SkyRL training: vLLM inference (GPU) + local training |
 | Wrapper | `FleetTaskEnv` (SkyRL) | Chat history management, tool call parsing, prompt construction |
 | Env | `FleetTaskEnv` (OpenEnv) | Low-level Fleet API: env creation, tool execution, verifier |
 | Platform | Fleet | Hosted task environments (Outlook, GitHub, etc.) |
