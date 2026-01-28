@@ -44,7 +44,7 @@ import random
 import time
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import numpy as np
 import tinker
@@ -56,9 +56,9 @@ from transformers import AutoTokenizer
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 
-# Use OpenEnv's FleetTaskEnv directly for async compatibility
-# (SkyRL's wrapper uses asyncio.run() which can't be called from async context)
-from envs.fleet_env import FleetTaskEnv as OpenEnvFleetTaskEnv
+# Use SkyRL's FleetTaskEnv wrapper (now supports async via init_async/step_async)
+from omegaconf import OmegaConf
+from integrations.fleet.env import FleetTaskEnv
 
 # Import SkyRL's overlong filtering for parity
 from skyrl_train.generators.utils import apply_overlong_filtering
@@ -66,31 +66,6 @@ from skyrl_train.generators.utils import apply_overlong_filtering
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARN)
-
-# Global task cache to avoid reloading JSON for each env instance
-_TASK_CACHE: Dict[str, Dict[str, Any]] = {}
-
-
-def load_tasks_from_json(tasks_file: str) -> Dict[str, Any]:
-    """Load tasks from JSON file with caching."""
-    if tasks_file not in _TASK_CACHE:
-        expanded_path = os.path.expanduser(tasks_file)
-        if not os.path.exists(expanded_path):
-            raise FileNotFoundError(f"Tasks file not found: {expanded_path}")
-
-        with open(expanded_path, "r") as f:
-            data = json.load(f)
-
-        if isinstance(data, list):
-            tasks = data
-        elif isinstance(data, dict) and "tasks" in data:
-            tasks = data["tasks"]
-        else:
-            raise ValueError(f"Invalid JSON format in {tasks_file}")
-
-        _TASK_CACHE[tasks_file] = {t.get("key") or t.get("task_key"): t for t in tasks}
-
-    return _TASK_CACHE[tasks_file]
 
 
 def set_seed(seed: int):
@@ -194,55 +169,6 @@ def compute_per_env_metrics(rollouts: List[Dict[str, Any]], n_samples_per_prompt
     return metrics
 
 
-def build_system_prompt(tools: List[Dict]) -> str:
-    """Build system prompt with tool definitions (matching SkyRL's FleetTaskEnv)."""
-    tools_json = json.dumps(tools, indent=2)
-    current_date = datetime.now().strftime("%Y-%m-%d")
-
-    return f"""You are a helpful agent. Complete the task by calling tools.
-
-## Current Date
-Today's date is {current_date}. When dates are mentioned without a year, assume the current year ({datetime.now().year}) or a future date.
-
-## Available Tools
-{tools_json}
-
-## Tool Call Format
-<tool_call>{{"name": "tool_name", "arguments": {{"param": "value"}}}}</tool_call>
-
-## Error Handling
-If a tool call returns an error:
-- Read the error message carefully
-- Do NOT repeat the same call with identical arguments
-- Change your approach: use different parameters, try a different tool, or break the task into smaller steps
-
-## Response Format
-EVERY response MUST end with exactly ONE of:
-1. A tool call: <tool_call>...</tool_call> - to perform an action
-2. Done signal: <done> - ONLY when the task is fully complete
-
-NEVER respond with just a message. NEVER say "feel free to ask" or offer further help.
-If the task is complete, say <done>. Otherwise, make a tool call."""
-
-
-def parse_tool_call(action: str) -> Optional[Dict[str, Any]]:
-    """Parse tool call from LLM response."""
-    import re
-
-    for tag in ["tool_call", "function_call"]:
-        match = re.search(rf"<{tag}>(.*?)</{tag}>", action, re.DOTALL)
-        if match:
-            try:
-                parsed = json.loads(match.group(1).strip())
-                name = parsed.get("name") or parsed.get("tool")
-                args = parsed.get("arguments") or parsed.get("params", {})
-                if name:
-                    return {"name": name, "arguments": args}
-            except json.JSONDecodeError:
-                pass
-    return None
-
-
 def tokenize_chat(tokenizer: AutoTokenizer, chat_history: List[Dict], add_generation_prompt: bool = True) -> List[int]:
     """
     Tokenize chat history and ensure we get a plain list of token IDs.
@@ -276,7 +202,7 @@ async def collect_fleet_rollout(
     """
     Collect a single trajectory using Fleet environment and Tinker inference.
 
-    Uses OpenEnv's FleetTaskEnv directly with async methods for compatibility.
+    Uses SkyRL's FleetTaskEnv wrapper with async methods for environment interaction.
 
     Args:
         max_generate_length: Max tokens per generation step.
@@ -284,49 +210,18 @@ async def collect_fleet_rollout(
     """
     rollout_start = time.time()
 
-    api_key = os.environ.get("FLEET_API_KEY")
-    if not api_key:
-        raise ValueError("FLEET_API_KEY environment variable must be set")
-
-    # Load full task config from JSON
-    tasks = load_tasks_from_json(tasks_file)
     task_key = task_config.get("task_key") or task_config.get("key")
-    full_task_config = tasks.get(task_key)
-    if not full_task_config:
-        raise ValueError(f"Task '{task_key}' not found in {tasks_file}")
 
-    # Normalize task config for OpenEnv
-    normalized_config = full_task_config.copy()
-    if "key" in normalized_config and "task_key" not in normalized_config:
-        normalized_config["task_key"] = normalized_config["key"]
-    if "env_id" in normalized_config and "env_key" not in normalized_config:
-        normalized_config["env_key"] = normalized_config["env_id"]
+    # Create SkyRL FleetTaskEnv wrapper
+    env_config = OmegaConf.create({"tasks_file": tasks_file, "ttl_seconds": 600})
+    extras = {"task_key": task_key, "max_turns": max_turns}
 
-    env_key = normalized_config.get("env_key", "unknown")
-
-    # Create OpenEnv FleetTaskEnv directly (async-compatible)
-    env = OpenEnvFleetTaskEnv(
-        task_config=normalized_config,
-        api_key=api_key,
-        ttl_seconds=600,
-        max_steps=max_turns,
-    )
-
-    turns = 0
-    tool_calls = 0
+    env = FleetTaskEnv(env_config=env_config, extras=extras)
 
     try:
-        # Reset environment (async)
-        obs = await env.reset_async()
-        tools = obs.get("tools", [])
-        task_prompt = normalized_config.get("prompt", "")
-
-        # Build chat history with system prompt
-        system_prompt = build_system_prompt(tools)
-        chat_history = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": task_prompt},
-        ]
+        # Initialize environment (async) - builds system prompt, gets tools
+        chat_history, metadata = await env.init_async([])
+        env_key = metadata.get("env_key", "unknown")
 
         # Tokenize initial prompt
         prompt_ids = tokenize_chat(tokenizer, chat_history, add_generation_prompt=True)
@@ -338,11 +233,9 @@ async def collect_fleet_rollout(
         total_reward = 0.0
         stop_reason = "stop"
 
-        while not done and turns < max_turns:
-            turns += 1
-
-            # Prepare input for Tinker
-            input_ids = tokenize_chat(tokenizer, chat_history, add_generation_prompt=True)
+        while not done and env.turns < max_turns:
+            # Prepare input for Tinker (use env's chat_history)
+            input_ids = tokenize_chat(tokenizer, env.chat_history, add_generation_prompt=True)
 
             # Check context length limit (matching SkyRL's skyrl_gym_generator.py:274)
             if len(input_ids) > max_input_length:
@@ -370,13 +263,13 @@ async def collect_fleet_rollout(
                 break
 
             sequence = result.sequences[0]
-            output_ids = sequence.tokens  # SampledSequence uses 'tokens', not 'token_ids'
+            output_ids = sequence.tokens
             output_logprobs = sequence.logprobs if sequence.logprobs else []
 
             # Decode output
             output_text = tokenizer.decode(output_ids, skip_special_tokens=True)
 
-            # Collect trajectory data
+            # Collect trajectory data (assistant response tokens - trainable)
             all_response_ids.extend(output_ids)
             if output_logprobs:
                 all_logprobs.extend(output_logprobs)
@@ -384,52 +277,19 @@ async def collect_fleet_rollout(
                 all_logprobs.extend([0.0] * len(output_ids))
             loss_mask.extend([1] * len(output_ids))
 
-            # Update chat history with assistant response
-            chat_history.append({"role": "assistant", "content": output_text})
+            # Step environment with LLM output (handles tool parsing, chat history, etc.)
+            step_output = await env.step_async(output_text)
 
-            # Parse tool call and step environment
-            tool_call = parse_tool_call(output_text)
-            agent_done = "<done>" in output_text.lower()
+            # Get observation content for tokenization (masked out for loss)
+            if step_output.observations:
+                obs_content = step_output.observations[0].get("content", "")
+                obs_ids = tokenizer.encode(obs_content, add_special_tokens=False)
+                all_response_ids.extend(obs_ids)
+                all_logprobs.extend([0.0] * len(obs_ids))
+                loss_mask.extend([0] * len(obs_ids))
 
-            if tool_call:
-                tool_calls += 1
-                action = {
-                    "tool": tool_call["name"],
-                    "params": tool_call.get("arguments", {}),
-                    "done": agent_done,
-                }
-            else:
-                action = {"done": agent_done}
-
-            # Step environment (async)
-            step_obs, reward, done, info = await env.step_async(action)
-
-            # Add observation to chat history
-            tool_result = step_obs.get("observation", {})
-            if tool_result:
-                if isinstance(tool_result, dict):
-                    obs_content = f"Tool result:\n{json.dumps(tool_result, indent=2)}"
-                else:
-                    obs_content = f"Tool result:\n{tool_result}"
-            elif agent_done:
-                obs_content = "Task marked as complete."
-            elif not tool_call:
-                obs_content = (
-                    'No tool call found. Use <tool_call>{"name": "...", "arguments": {...}}</tool_call> format.'
-                )
-            else:
-                obs_content = "Action executed."
-
-            chat_history.append({"role": "user", "content": obs_content})
-
-            # Add observation tokens (masked out for loss)
-            obs_ids = tokenizer.encode(obs_content, add_special_tokens=False)
-            all_response_ids.extend(obs_ids)
-            all_logprobs.extend([0.0] * len(obs_ids))
-            loss_mask.extend([0] * len(obs_ids))
-
-            total_reward = reward
-            done = done or agent_done
+            total_reward = step_output.reward
+            done = step_output.done
 
         return {
             "prompt_ids": prompt_ids,
@@ -439,8 +299,8 @@ async def collect_fleet_rollout(
             "reward": total_reward,
             "task_key": task_key,
             "env_key": env_key,
-            "turns": turns,
-            "tool_calls": tool_calls,
+            "turns": env.turns,
+            "tool_calls": env.tool_calls,
             "stop_reason": stop_reason,
             "duration": time.time() - rollout_start,
         }
