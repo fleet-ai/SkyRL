@@ -174,11 +174,11 @@ jobs:
           payload: |
             {
               "channel": "#fleet-training-runs",
-              "text": "🚀 Fleet Training Run Started",
+              "text": "🚀 SkyRL Training Run Started",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "🚀 Fleet Training Run Started" }
+                  "text": { "type": "plain_text", "text": "🚀 SkyRL Training Run Started" }
                 },
                 {
                   "type": "section",
@@ -247,11 +247,11 @@ jobs:
             {
               "channel": "#fleet-training-runs",
               "thread_ts": "${{ steps.slack_start.outputs.ts }}",
-              "text": "✅ Fleet Training Completed",
+              "text": "✅ SkyRL Training Completed",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "✅ Fleet Training Completed" }
+                  "text": { "type": "plain_text", "text": "✅ SkyRL Training Completed" }
                 },
                 {
                   "type": "section",
@@ -285,11 +285,11 @@ jobs:
             {
               "channel": "#fleet-training-runs",
               "thread_ts": "${{ steps.slack_start.outputs.ts }}",
-              "text": "❌ Fleet Training Failed",
+              "text": "❌ SkyRL Training Failed",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "❌ Fleet Training Failed" }
+                  "text": { "type": "plain_text", "text": "❌ SkyRL Training Failed" }
                 },
                 {
                   "type": "section",
@@ -323,11 +323,11 @@ jobs:
             {
               "channel": "#fleet-training-runs",
               "thread_ts": "${{ steps.slack_start.outputs.ts }}",
-              "text": "⚠️ Fleet Training Cancelled",
+              "text": "⚠️ SkyRL Training Cancelled",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "⚠️ Fleet Training Cancelled" }
+                  "text": { "type": "plain_text", "text": "⚠️ SkyRL Training Cancelled" }
                 },
                 {
                   "type": "section",
@@ -363,7 +363,7 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "## Fleet Training - ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "## SkyRL Training - ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
