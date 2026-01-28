@@ -421,15 +421,16 @@ async def collect_fleet_rollout(
             step_output = await env.step_async(output_text)
 
             # Get observation content for tokenization (masked out for loss)
-            if step_output.observations:
-                obs_content = step_output.observations[0].get("content", "")
+            # Note: BaseTextEnvStepOutput is a TypedDict, use dict access
+            if step_output["observations"]:
+                obs_content = step_output["observations"][0].get("content", "")
                 obs_ids = tokenizer.encode(obs_content, add_special_tokens=False)
                 all_response_ids.extend(obs_ids)
                 all_logprobs.extend([0.0] * len(obs_ids))
                 loss_mask.extend([0] * len(obs_ids))
 
-            total_reward = step_output.reward
-            done = step_output.done
+            total_reward = step_output["reward"]
+            done = step_output["done"]
 
         return {
             "prompt_ids": prompt_ids,
