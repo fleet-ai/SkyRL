@@ -11,55 +11,64 @@ This document describes how Fleet environments integrate with SkyRL and Tinker t
 │      SkyRL Training Loop          │         Tinker Training Loop            │
 │   (skyrl_gym_generator.py)        │      (main_fleet_tinker.py)             │
 │                                   │                                         │
-│  ┌─────────────────────────┐      │      ┌─────────────────────────┐        │
-│  │ generate_batched()      │      │      │ main()                  │        │
-│  │                         │      │      │                         │        │
-│  │ - env.init(prompt)      │      │      │ - collect_batch_rollouts│        │
-│  │ - env.step(action)      │      │      │ - prepare_training_data │        │
-│  │ - env.close()           │      │      │ - forward_backward      │        │
-│  │                         │      │      │                         │        │
-│  │ Uses: SYNC methods      │      │      │ Uses: ASYNC methods     │        │
-│  └───────────┬─────────────┘      │      └───────────┬─────────────┘        │
-│              │                    │                  │                      │
-└──────────────┼────────────────────┼──────────────────┼──────────────────────┘
-               │                    │                  │
-               │   asyncio.run()    │                  │  await
-               ▼                    │                  ▼
+│  generate_batched()               │  main()                                 │
+│    • Runs inference locally       │    • Uses Tinker hosted inference       │
+│    • Batches prompts for vLLM     │    • Async rollout collection           │
+│    • Computes GRPO advantages     │    • prepare_training_data()            │
+│    • Builds training batch        │    • Calls Tinker forward_backward()    │
+│                                   │                                         │
+└───────────────────────────────────┴─────────────────────────────────────────┘
+                                    │
+                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    SkyRL FleetTaskEnv Wrapper                               │
 │                  (integrations/fleet/env.py)                                │
 │                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                         FleetTaskEnv                                 │   │
-│  │                      (extends BaseTextEnv)                           │   │
-│  │                                                                      │   │
-│  │  Sync Methods (wrappers)      │    Async Methods (actual logic)     │   │
-│  │  ─────────────────────────    │    ────────────────────────────     │   │
-│  │  init(prompt)                 │    init_async(prompt)               │   │
-│  │    └─ asyncio.run(init_async) │      └─ await openenv.reset_async() │   │
-│  │                               │      └─ build system prompt         │   │
-│  │  step(action)                 │    step_async(action)               │   │
-│  │    └─ asyncio.run(step_async) │      └─ parse tool calls            │   │
-│  │                               │      └─ await openenv.step_async()  │   │
-│  │  close()                      │      └─ build observation           │   │
-│  │    └─ openenv.close()         │                                     │   │
-│  │                               │                                     │   │
-│  │  Manages: chat_history, tools, turns, tool_calls                    │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
+│  FleetTaskEnv (extends BaseTextEnv)                                         │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                             │
+│  __init__(env_config, extras)                                               │
+│    • Loads task config from JSON file (tasks_file)                          │
+│    • Validates task_key exists in config                                    │
+│    • Sets up API key and TTL for Fleet environments                         │
+│                                                                             │
+│  init() / init_async()                                                      │
+│    • Creates OpenEnv FleetTaskEnv instance                                  │
+│    • Calls openenv.reset_async() to create Fleet env and fetch tools        │
+│    • Builds system prompt with tool definitions and date context            │
+│    • Returns initial chat_history: [system_msg, user_task_prompt]           │
+│                                                                             │
+│  step() / step_async(action)                                                │
+│    • Parses tool call from LLM response (<tool_call>...</tool_call>)        │
+│    • Executes tool via openenv.step_async() → Fleet platform                │
+│    • Tracks turns, tool_calls for metrics                                   │
+│    • Returns BaseTextEnvStepOutput with observation, reward, done           │
+│                                                                             │
+│  close()                                                                    │
+│    • Cleanup Fleet environment resources                                    │
+│                                                                             │
+│  State: chat_history, tools, turns, tool_calls, openenv_task_env            │
+│  Note: sync methods wrap async methods with asyncio.run()                   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
-                                    │ await
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         OpenEnv FleetTaskEnv                                │
 │                    (envs/fleet_env/task_env.py)                             │
 │                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  reset_async()     → Creates Fleet env, fetches tools               │   │
-│  │  step_async(action)→ Executes tool call, returns (obs, reward, done)│   │
-│  │  close()           → Cleanup Fleet environment                      │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
+│  reset_async()                                                              │
+│    • Creates Fleet environment via fleet.make()                             │
+│    • Fetches available tools via MCP list_tools                             │
+│    • Returns observation with tools list                                    │
+│                                                                             │
+│  step_async(action)                                                         │
+│    • Executes tool call on Fleet environment                                │
+│    • Runs verifier if episode done (reward computation)                     │
+│    • Returns (observation, reward, done, info)                              │
+│                                                                             │
+│  close()                                                                    │
+│    • Destroys Fleet environment instance                                    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -68,9 +77,11 @@ This document describes how Fleet environments integrate with SkyRL and Tinker t
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           Fleet Platform                                    │
 │                                                                             │
+│  Hosted task environments with MCP tool interfaces:                         │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
 │  │   Outlook    │  │    GitHub    │  │   Booking    │  │    Reddit    │    │
-│  │ Environment  │  │ Environment  │  │ Environment  │  │ Environment  │    │
+│  │  (email,     │  │  (repos,     │  │  (search,    │  │  (posts,     │    │
+│  │  calendar)   │  │  issues, PR) │  │  reserve)    │  │  comments)   │    │
 │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -81,44 +92,44 @@ This document describes how Fleet environments integrate with SkyRL and Tinker t
 | Layer | Component | Purpose |
 |-------|-----------|---------|
 | Training | `main_fleet_tinker.py` | Tinker-based training with async rollout collection |
-| Training | `skyrl_gym_generator.py` | SkyRL's standard training with sync interface |
-| Wrapper | `FleetTaskEnv` (SkyRL) | Unified sync/async interface, chat history management |
-| Env | `FleetTaskEnv` (OpenEnv) | Low-level Fleet environment interaction |
+| Training | `skyrl_gym_generator.py` | SkyRL's standard training with local vLLM inference |
+| Wrapper | `FleetTaskEnv` (SkyRL) | Chat history management, tool call parsing, prompt construction |
+| Env | `FleetTaskEnv` (OpenEnv) | Low-level Fleet API: env creation, tool execution, verifier |
 | Platform | Fleet | Hosted task environments (Outlook, GitHub, etc.) |
 
 ## Communication Flow
 
-### Tinker Training Loop (Async)
+### Tinker Training Loop
 ```python
 # 1. Create environment
 env = FleetTaskEnv(env_config, extras={"task_key": task_key, ...})
 
-# 2. Initialize (async)
+# 2. Initialize - creates Fleet env, fetches tools, builds system prompt
 chat_history, metadata = await env.init_async([])
 
 # 3. Rollout loop
 while not done:
     input_ids = tokenize(env.chat_history)
-    output = tinker_sample(input_ids)          # Tinker inference
-    step_output = await env.step_async(output)  # Fleet environment
+    output = tinker_sample(input_ids)           # Tinker hosted inference
+    step_output = await env.step_async(output)  # Parse tool call, execute on Fleet
     done = step_output.done
 
 # 4. Cleanup
 env.close()
 ```
 
-### SkyRL Training Loop (Sync)
+### SkyRL Training Loop
 ```python
 # 1. Create environment
 env = skyrl_gym.make("fleet_task", env_config, extras)
 
-# 2. Initialize (sync - uses asyncio.run internally)
+# 2. Initialize (uses asyncio.run internally)
 chat_history, metadata = env.init(prompt)
 
 # 3. Rollout loop
 while not done:
-    output = inference_engine.generate(chat_history)
-    step_output = env.step(output)  # Uses asyncio.run internally
+    output = inference_engine.generate(chat_history)  # Local vLLM inference
+    step_output = env.step(output)                    # Uses asyncio.run internally
     done = step_output.done
 
 # 4. Cleanup
@@ -136,15 +147,26 @@ env.close()
                 step_output
 ```
 
-### Key Data Structures
+## Key Data Structures
 
-**init_async() returns:**
+**init() / init_async() returns:**
 - `chat_history`: List of messages `[{role, content}, ...]`
+  - System message with tools JSON and instructions
+  - User message with task prompt
 - `metadata`: `{task_key, env_key, tools, modality}`
 
-**step_async() returns:**
+**step() / step_async() returns:**
 - `BaseTextEnvStepOutput`:
-  - `observations`: New messages to append
-  - `reward`: Float (0.0 during rollout, final reward on done)
-  - `done`: Boolean
+  - `observations`: New messages to append (tool result or error)
+  - `reward`: Float (0.0 during rollout, verifier reward on done)
+  - `done`: Boolean (agent said `<done>` or max_turns reached)
   - `metadata`: `{task_key, turn, tool_call, tool_result, error}`
+
+## Training Data Preparation
+
+Both training loops follow the same pattern for preparing training data:
+
+1. **DAPO Overlong Filtering**: Zero out loss mask for responses not ending with EOS token
+2. **Sequence Truncation**: Truncate to `max_sequence_length`, preserving prompt
+3. **Advantage Computation**: GRPO advantages from rewards grouped by prompt
+4. **Build Training Batch**: Combine into format expected by trainer
