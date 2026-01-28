@@ -461,11 +461,11 @@ async def collect_batch_rollouts(
 ) -> List[Dict[str, Any]]:
     """Collect rollouts for a batch of tasks in parallel."""
 
-    async def collect_single_rollout(task_config: Dict[str, Any]) -> Dict[str, Any]:
+    async def collect_single_rollout(task_config: Dict[str, Any], index: int) -> tuple:
         """Wrapper to collect a single rollout with error handling."""
         rollout_start = time.time()
         try:
-            return await collect_fleet_rollout(
+            rollout = await collect_fleet_rollout(
                 task_config=task_config,
                 tasks_file=tasks_file,
                 sampling_client=sampling_client,
@@ -474,9 +474,10 @@ async def collect_batch_rollouts(
                 max_generate_length=max_generate_length,
                 max_input_length=max_input_length,
             )
+            return index, rollout
         except Exception as e:
             logger.error(f"Failed to collect rollout for {task_config.get('task_key')}: {e}")
-            return {
+            return index, {
                 "prompt_ids": [],
                 "response_ids": [],
                 "logprobs": [],
@@ -493,14 +494,30 @@ async def collect_batch_rollouts(
 
     # Create all rollout tasks (batch_size * n_samples_per_prompt)
     tasks = []
+    index = 0
     for task_config in batch:
         for _ in range(n_samples_per_prompt):
-            tasks.append(collect_single_rollout(task_config))
+            tasks.append(collect_single_rollout(task_config, index))
+            index += 1
 
-    # Run all rollouts in parallel
-    rollouts = await asyncio.gather(*tasks)
+    total = len(tasks)
+    rollouts = [None] * total
+    completed = 0
+    last_logged = 0
+    log_interval = max(1, total // 4)  # Log at ~25%, 50%, 75%, 100%
 
-    return list(rollouts)
+    # Run all rollouts in parallel with progress logging
+    for coro in asyncio.as_completed(tasks):
+        idx, rollout = await coro
+        rollouts[idx] = rollout
+        completed += 1
+
+        # Log progress at intervals
+        if completed - last_logged >= log_interval or completed == total:
+            logger.info(f"  Progress: {completed}/{total} rollouts completed")
+            last_logged = completed
+
+    return rollouts
 
 
 def collate_fn(batch):
