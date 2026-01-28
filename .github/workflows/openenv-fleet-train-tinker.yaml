@@ -28,7 +28,7 @@ on:
       max_steps:
         description: "Maximum training steps"
         type: string
-        default: "200"
+        default: "50"
       batch_size:
         description: "Batch size"
         type: string
@@ -270,6 +270,40 @@ jobs:
                   "type": "context",
                   "elements": [
                     { "type": "mrkdwn", "text": "Triggered by: ${{ github.actor }}" }
+                  ]
+                }
+              ]
+            }
+
+      - name: Notify Slack - Training Cancelled
+        if: cancelled() && steps.slack_start.outputs.ts
+        uses: slackapi/slack-github-action@v2.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            {
+              "channel": "#fleet-training-runs",
+              "thread_ts": "${{ steps.slack_start.outputs.ts }}",
+              "text": "⚠️ Tinker Training Cancelled",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": { "type": "plain_text", "text": "⚠️ Tinker Training Cancelled" }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    { "type": "mrkdwn", "text": "*Run:*\n`${{ steps.run.outputs.name }}`" },
+                    { "type": "mrkdwn", "text": "*Model:*\n`${{ inputs.model_name }}`" },
+                    { "type": "mrkdwn", "text": "*Modality:*\n`${{ inputs.modality }}`" },
+                    { "type": "mrkdwn", "text": "*Status:*\n`CANCELLED`" }
+                  ]
+                },
+                {
+                  "type": "context",
+                  "elements": [
+                    { "type": "mrkdwn", "text": "Triggered by: ${{ github.actor }} | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow>" }
                   ]
                 }
               ]
