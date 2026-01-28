@@ -12,8 +12,8 @@ Usage:
         --eval-dataset-file /path/to/validation.parquet
 
 Environment Variables:
-    TINKER_API_URL: Tinker service URL (required for hosted Tinker)
-    TINKER_API_KEY: Tinker API key for authentication
+    TINKER_API_KEY: Tinker API key for authentication (required)
+    TINKER_API_URL: Tinker service URL (optional, SDK uses default if not set)
     FLEET_API_KEY: Fleet API key for environment access
     WANDB_API_KEY: Weights & Biases API key for logging
 

@@ -178,6 +178,7 @@ jobs:
       - name: Run training
         working-directory: skyrl-train
         env:
+          # TINKER_API_URL is optional - SDK uses default if not set
           TINKER_API_URL: ${{ secrets.TINKER_API_URL }}
           TINKER_API_KEY: ${{ secrets.TINKER_API_KEY }}
           FLEET_API_KEY: ${{ secrets.FLEET_API_KEY }}
