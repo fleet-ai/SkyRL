@@ -169,6 +169,87 @@ def compute_per_env_metrics(rollouts: List[Dict[str, Any]], n_samples_per_prompt
     return metrics
 
 
+def prepare_training_data(
+    rollouts: List[Dict[str, Any]],
+    advantages: List[float],
+    tokenizer: AutoTokenizer,
+    max_sequence_length: int,
+) -> tuple:
+    """
+    Prepare training data from rollouts (matching SkyRL's generate_batched pattern).
+
+    Applies:
+    1. DAPO overlong filtering (zero loss mask if response doesn't end with EOS)
+    2. Sequence truncation for max_sequence_length
+    3. Builds Tinker Datum objects for training
+
+    Args:
+        rollouts: List of rollout dicts with prompt_ids, response_ids, logprobs, loss_mask
+        advantages: GRPO advantages for each rollout
+        tokenizer: Tokenizer for EOS token ID
+        max_sequence_length: Maximum sequence length for training
+
+    Returns:
+        Tuple of (training_datums, truncated_count)
+    """
+    # Apply DAPO overlong filtering (zero out loss mask if response doesn't end with EOS)
+    all_response_ids = [r["response_ids"] for r in rollouts]
+    all_loss_masks = [r["loss_mask"] for r in rollouts]
+    filtered_loss_masks = apply_overlong_filtering(all_loss_masks, all_response_ids, tokenizer.eos_token_id)
+
+    training_datums = []
+    truncated_count = 0
+
+    for idx, rollout in enumerate(rollouts):
+        prompt_ids = rollout["prompt_ids"]
+        response_ids = rollout["response_ids"]
+        logprobs = rollout["logprobs"]
+        loss_mask_data = filtered_loss_masks[idx]
+
+        full_sequence = prompt_ids + response_ids
+        prompt_len = len(prompt_ids)
+
+        # Truncate sequences exceeding model's max length for Tinker API
+        if len(full_sequence) > max_sequence_length:
+            truncated_count += 1
+            full_sequence = full_sequence[:max_sequence_length]
+            response_len = len(full_sequence) - prompt_len
+            response_ids = response_ids[:response_len]
+            logprobs = logprobs[:response_len] if logprobs else []
+            loss_mask_data = loss_mask_data[:response_len]
+
+        # Target tokens (shifted by 1)
+        target_tokens = full_sequence[1:]
+
+        # Logprobs (0 for prompt, actual for response)
+        full_logprobs = [0.0] * prompt_len + logprobs
+        full_logprobs = full_logprobs[1:]
+
+        # Loss mask (0 for prompt, actual for response)
+        full_mask = [0] * prompt_len + loss_mask_data
+        full_mask = full_mask[1:]
+
+        # Advantages (apply only where loss mask is 1)
+        advantage_value = advantages[idx]
+        full_advantages = torch.zeros(len(full_sequence))
+        for i in range(prompt_len, len(full_sequence)):
+            if i - 1 < len(full_mask) and full_mask[i - 1] > 0:
+                full_advantages[i] = advantage_value
+        full_advantages = full_advantages[1:]
+
+        datum = types.Datum(
+            model_input=types.ModelInput.from_ints(tokens=full_sequence[:-1]),
+            loss_fn_inputs={
+                "target_tokens": TensorData.from_torch(torch.tensor(target_tokens)),
+                "logprobs": TensorData.from_torch(torch.tensor(full_logprobs)),
+                "advantages": TensorData.from_torch(full_advantages),
+            },
+        )
+        training_datums.append(datum)
+
+    return training_datums, truncated_count
+
+
 def tokenize_chat(tokenizer: AutoTokenizer, chat_history: List[Dict], add_generation_prompt: bool = True) -> List[int]:
     """
     Tokenize chat history and ensure we get a plain list of token IDs.
@@ -589,64 +670,17 @@ async def main(
         metrics["rollout/max_duration"] = np.max(durations)
         metrics["rollout/min_duration"] = np.min(durations)
 
-        # Apply DAPO overlong filtering (zero out loss mask if response doesn't end with EOS)
-        all_response_ids = [r["response_ids"] for r in valid_rollouts]
-        all_loss_masks = [r["loss_mask"] for r in valid_rollouts]
-        filtered_loss_masks = apply_overlong_filtering(all_loss_masks, all_response_ids, tokenizer.eos_token_id)
+        # Prepare training data (DAPO filtering + truncation + datum creation)
+        training_datums, truncated_count = prepare_training_data(
+            rollouts=valid_rollouts,
+            advantages=advantages,
+            tokenizer=tokenizer,
+            max_sequence_length=max_sequence_length,
+        )
 
-        # Prepare training data (also truncate sequences exceeding model's max length)
-        training_datums = []
-        truncated_overlong = 0
-        for idx, rollout in enumerate(valid_rollouts):
-            prompt_ids = rollout["prompt_ids"]
-            response_ids = rollout["response_ids"]
-            logprobs = rollout["logprobs"]
-            loss_mask_data = filtered_loss_masks[idx]  # Use filtered loss mask
-
-            full_sequence = prompt_ids + response_ids
-            prompt_len = len(prompt_ids)
-
-            # Truncate sequences exceeding model's max length for Tinker API
-            if len(full_sequence) > max_sequence_length:
-                truncated_overlong += 1
-                full_sequence = full_sequence[:max_sequence_length]
-                response_len = len(full_sequence) - prompt_len
-                response_ids = response_ids[:response_len]
-                logprobs = logprobs[:response_len] if logprobs else []
-                loss_mask_data = loss_mask_data[:response_len]
-
-            # Target tokens (shifted by 1)
-            target_tokens = full_sequence[1:]
-
-            # Logprobs (0 for prompt, actual for response)
-            full_logprobs = [0.0] * prompt_len + logprobs
-            full_logprobs = full_logprobs[1:]
-
-            # Loss mask (0 for prompt, actual for response)
-            full_mask = [0] * prompt_len + loss_mask_data
-            full_mask = full_mask[1:]
-
-            # Advantages
-            advantage_value = advantages[idx]
-            full_advantages = torch.zeros(len(full_sequence))
-            for i in range(prompt_len, len(full_sequence)):
-                if i - 1 < len(full_mask) and full_mask[i - 1] > 0:
-                    full_advantages[i] = advantage_value
-            full_advantages = full_advantages[1:]
-
-            datum = types.Datum(
-                model_input=types.ModelInput.from_ints(tokens=full_sequence[:-1]),
-                loss_fn_inputs={
-                    "target_tokens": TensorData.from_torch(torch.tensor(target_tokens)),
-                    "logprobs": TensorData.from_torch(torch.tensor(full_logprobs)),
-                    "advantages": TensorData.from_torch(full_advantages),
-                },
-            )
-            training_datums.append(datum)
-
-        if truncated_overlong > 0:
-            logger.info(f"Step {step}: Truncated {truncated_overlong} overlong sequences (loss mask zeroed)")
-            metrics["rollouts/truncated_overlong"] = truncated_overlong
+        if truncated_count > 0:
+            logger.info(f"Step {step}: Truncated {truncated_count} overlong sequences")
+            metrics["rollouts/truncated_overlong"] = truncated_count
 
         if not training_datums:
             logger.warning(f"Step {step}: No valid training sequences after filtering, skipping")
