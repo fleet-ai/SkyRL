@@ -79,7 +79,7 @@ logging.getLogger("mcp").setLevel(logging.WARNING)
 _env_executor: ThreadPoolExecutor = None
 
 
-def _get_env_executor(max_workers: int = 8) -> ThreadPoolExecutor:
+def _get_env_executor(max_workers: int = 16) -> ThreadPoolExecutor:
     global _env_executor
     if _env_executor is None:
         _env_executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="fleet-env-")
