@@ -396,7 +396,7 @@ async def collect_fleet_rollout(
     task_key = task_config.get("task_key") or task_config.get("key")
 
     # Create SkyRL FleetTaskEnv wrapper
-    env_config = OmegaConf.create({"tasks_file": tasks_file, "ttl_seconds": 600})
+    env_config = OmegaConf.create({"tasks_file": tasks_file, "ttl_seconds": 1800})  # 30 min TTL
     extras = {"task_key": task_key, "max_turns": max_turns}
 
     env = FleetTaskEnv(env_config=env_config, extras=extras)
@@ -417,6 +417,7 @@ async def collect_fleet_rollout(
         stop_reason = "stop"
 
         while not done and env.turns < max_turns:
+            logger.info(f"Step {env.turns}: {env.chat_history=}")
             # Prepare input for Tinker (use env's chat_history)
             input_ids = tokenize_chat(tokenizer, env.chat_history, add_generation_prompt=True)
 
