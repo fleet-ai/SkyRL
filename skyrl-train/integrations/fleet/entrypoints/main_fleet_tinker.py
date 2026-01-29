@@ -66,6 +66,14 @@ from integrations.fleet.env import FleetTaskEnv
 # Import SkyRL's overlong filtering for parity
 from skyrl_train.generators.utils import apply_overlong_filtering
 
+# Import shared metrics module for consistent metric calculation with SkyRL trainer
+from skyrl_train.metrics.reward_metrics import (
+    compute_pass_at_n as _compute_pass_at_n,
+    compute_reward_metrics,
+    compute_per_group_metrics,
+    sanitize_metric_key,
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -177,44 +185,37 @@ def compute_advantages_grpo(
 
 def compute_pass_at_n(rollouts: List[Dict[str, Any]], n_samples_per_prompt: int) -> float:
     """
-    Compute pass@n metric matching SkyRL's implementation.
+    Compute pass@n metric using the shared metrics module.
 
     For each unique prompt (task_key), if ANY of the n trajectories has reward > 0,
     that counts as a "pass".
+
+    This function is a thin wrapper around the shared compute_pass_at_n for backward
+    compatibility with the rollout dict format.
     """
-    uid_to_rewards = defaultdict(list)
-    for r in rollouts:
-        uid = r.get("task_key", "unknown")
-        uid_to_rewards[uid].append(r.get("reward", 0.0))
-
-    if not uid_to_rewards:
-        return 0.0
-
-    # Count prompts where at least one trajectory passed
-    passed = sum(1 for rewards in uid_to_rewards.values() if any(r > 0 for r in rewards))
-    return passed / len(uid_to_rewards)
+    rewards = [r.get("reward", 0.0) for r in rollouts]
+    uids = [r.get("task_key", "unknown") for r in rollouts]
+    return _compute_pass_at_n(rewards, uids)
 
 
 def compute_per_env_metrics(rollouts: List[Dict[str, Any]], n_samples_per_prompt: int) -> Dict[str, float]:
-    """Compute per-environment metrics matching SkyRL's pattern."""
-    env_to_rollouts = defaultdict(list)
-    for r in rollouts:
-        env_key = r.get("env_key", "unknown")
-        env_to_rollouts[env_key].append(r)
+    """
+    Compute per-environment metrics using the shared metrics module.
 
-    metrics = {}
-    for env_key, env_rollouts in env_to_rollouts.items():
-        rewards = [r.get("reward", 0.0) for r in env_rollouts]
-        pass_at_n = compute_pass_at_n(env_rollouts, n_samples_per_prompt)
-        avg_score = np.mean(rewards) if rewards else 0.0
-        mean_positive = np.mean([r for r in rewards if r > 0]) if any(r > 0 for r in rewards) else 0.0
+    This function is a thin wrapper around the shared compute_per_group_metrics for
+    backward compatibility with the rollout dict format.
+    """
+    rewards = [r.get("reward", 0.0) for r in rollouts]
+    uids = [r.get("task_key", "unknown") for r in rollouts]
+    env_keys = [r.get("env_key", "unknown") for r in rollouts]
 
-        sanitized_env = env_key.replace("/", "_")
-        metrics[f"reward/{sanitized_env}/pass_at_{n_samples_per_prompt}"] = pass_at_n
-        metrics[f"reward/{sanitized_env}/avg_score"] = avg_score
-        metrics[f"reward/{sanitized_env}/mean_positive_reward"] = mean_positive
-
-    return metrics
+    return compute_per_group_metrics(
+        rewards=rewards,
+        uids=uids,
+        groups=env_keys,
+        n_samples_per_prompt=n_samples_per_prompt,
+        prefix="reward",
+    )
 
 
 def compute_rollout_metrics(
@@ -225,7 +226,7 @@ def compute_rollout_metrics(
     n_samples_per_prompt: int,
 ) -> Dict[str, Any]:
     """
-    Compute all rollout metrics (matching SkyRL's pattern).
+    Compute all rollout metrics using the shared metrics module.
 
     Args:
         rollouts: All rollouts (including failed ones)
@@ -239,26 +240,36 @@ def compute_rollout_metrics(
     """
     metrics = {}
 
-    # Core reward metrics
-    pass_at_n = compute_pass_at_n(valid_rollouts, n_samples_per_prompt)
-    mean_positive = np.mean([r for r in rewards if r > 0]) if any(r > 0 for r in rewards) else 0.0
+    # Extract data for shared module
+    uids = [r.get("task_key", "unknown") for r in valid_rollouts]
+    env_keys = [r.get("env_key", "unknown") for r in valid_rollouts]
 
-    metrics[f"reward/avg_pass_at_{n_samples_per_prompt}"] = pass_at_n
-    metrics["reward/avg_raw_reward"] = np.mean(rewards)
-    metrics["reward/mean_positive_reward"] = mean_positive
+    # Core reward metrics using shared module
+    core_metrics = compute_reward_metrics(rewards, uids, n_samples_per_prompt)
+    metrics[f"reward/avg_pass_at_{n_samples_per_prompt}"] = core_metrics[f"pass_at_{n_samples_per_prompt}"]
+    metrics["reward/avg_raw_reward"] = core_metrics["avg_score"]
+    metrics["reward/mean_positive_reward"] = core_metrics["mean_positive_reward"]
+
+    # Advantage metrics (Tinker-specific)
     metrics["advantage/mean"] = np.mean(advantages)
     metrics["advantage/std"] = np.std(advantages)
     metrics["rollouts/valid"] = len(valid_rollouts)
     metrics["rollouts/total"] = len(rollouts)
 
-    # Per-environment metrics
-    per_env_metrics = compute_per_env_metrics(valid_rollouts, n_samples_per_prompt)
+    # Per-environment reward metrics using shared module
+    per_env_metrics = compute_per_group_metrics(
+        rewards=rewards,
+        uids=uids,
+        groups=env_keys,
+        n_samples_per_prompt=n_samples_per_prompt,
+        prefix="reward",
+    )
     metrics.update(per_env_metrics)
 
-    # Per-environment rollout stats (turns, tool_calls, duration)
+    # Per-environment rollout stats (turns, tool_calls, duration) - Tinker-specific
     rollout_stats = defaultdict(list)
     for r in valid_rollouts:
-        env_key = r.get("env_key", "unknown").replace("/", "_")
+        env_key = sanitize_metric_key(r.get("env_key", "unknown"))
         rollout_stats[f"rollout/{env_key}/turns"].append(r.get("turns", 0))
         rollout_stats[f"rollout/{env_key}/tool_calls"].append(r.get("tool_calls", 0))
         rollout_stats[f"rollout/{env_key}/duration"].append(r.get("duration", 0.0))
