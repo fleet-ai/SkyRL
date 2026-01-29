@@ -14,7 +14,7 @@ Split Strategy:
     - Hash-based deterministic assignment (same task always goes to same split)
     - 10% eval ratio, capped at 30 samples per env (MAX_EVAL_SAMPLES)
     - Minimum 1 eval sample per env (otherwise all go to train)
-    - Held-out eval envs: outlook (tool_use), instacart (computer_use)
+    - Held-out eval envs: instacart (computer_use only)
 
 v0.3 Changes:
     - Increased eval_ratio from 2% to 10%
@@ -34,7 +34,7 @@ from datasets import Dataset
 
 # Held-out environments for eval only (not used in train)
 HELD_OUT_ENVS = {
-    "tool_use": ["outlook"],  # outlook stays eval-only (only 19 tasks)
+    "tool_use": [],  # v0.3: all envs split normally (outlook now included in train)
     "computer_use": ["instacart"],
 }
 
