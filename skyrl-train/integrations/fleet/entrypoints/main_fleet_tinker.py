@@ -502,13 +502,13 @@ async def collect_batch_rollouts(
     max_generate_length: int = 2048,
     max_input_length: int = 30720,
     n_samples_per_prompt: int = 1,
-    max_concurrent: int = 2,
+    max_concurrent: int = 8,
 ) -> List[Dict[str, Any]]:
     """Collect rollouts for a batch of tasks with limited concurrency.
 
     Args:
         max_concurrent: Maximum number of concurrent Fleet environment connections.
-            Fleet MCP connections can timeout if too many are opened simultaneously.
+            Now safe to increase since ThreadPoolExecutor isolates connections.
     """
     # Semaphore to limit concurrent Fleet environment connections
     semaphore = asyncio.Semaphore(max_concurrent)
