@@ -2,16 +2,49 @@
 
 Quick reference for launching training runs on Fleet tasks.
 
-## Backends
+## Architecture
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                        Training Loop                           │
+│                                                                │
+│   ┌──────────┐    ┌──────────┐    ┌──────────┐                │
+│   │  Sample  │───→│   Env    │───→│  Train   │                │
+│   │  (LLM)   │    │  (Fleet) │    │  (GRPO)  │                │
+│   └──────────┘    └──────────┘    └──────────┘                │
+│        │                                │                      │
+│        ▼                                ▼                      │
+│   ┌─────────────────────────────────────────────────────────┐ │
+│   │ SkyRL:  Local vLLM + FSDP (your GPUs)                   │ │
+│   │ Tinker: Remote APIs (hosted GPUs)                       │ │
+│   └─────────────────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────┘
+```
 
 | Backend | Infrastructure | Best For |
 |---------|---------------|----------|
-| **SkyRL (SkyPilot)** | Self-managed GPU (Lambda/RunPod/Vast) | Full control, longer runs |
+| **SkyRL** | Self-managed GPU (Lambda/RunPod/Vast) | Full control, longer runs |
 | **Tinker** | Hosted GPU (Theseus) | Quick iteration, no GPU setup |
+
+## Data Sources
+
+Tasks are stored in S3 and downloaded at workflow start:
+
+| Dataset | S3 Path | Description |
+|---------|---------|-------------|
+| Tool Use | `s3://fleet-internal-datasets/v0.2/openenv/all_tool_use.json` | MCP tool-based tasks |
+| Computer Use | `s3://fleet-internal-datasets/v0.2/openenv/all_computer_use.json` | Browser/desktop tasks |
+
+Each task JSON contains:
+- `task_key`: Unique identifier
+- `prompt`: Task instruction
+- `env_key`: Environment (e.g., `github`, `linear`, `notion`)
+- `env_version`: Environment version
+- `verifier_code`: Python verification function
 
 ## Launching a Run
 
-### Via GitHub Actions (Recommended)
+### Via GitHub Actions
 
 1. Go to **Actions** → Select workflow:
    - `Fleet Task Training (SkyPilot)` - SkyRL backend
@@ -49,10 +82,9 @@ Quick reference for launching training runs on Fleet tasks.
 
 Channel: `#fleet-training-runs-test`
 
-- Started: Run name, backend, modality, config
-- Completed: Final status, WandB link
-- Failed: Error logs link
-- Cancelled: Cleanup status
+- **Started**: Run name, backend, modality, config
+- **Completed**: Final status, WandB link
+- **Failed**: Error logs link
 
 ### WandB Dashboards
 
@@ -63,13 +95,16 @@ Channel: `#fleet-training-runs-test`
 
 ### Key Metrics
 
-- `reward/avg_pass_at_1` - Primary success metric
-- `reward/avg_raw_reward` - Average reward per episode
-- `reward/{env_key}/pass_at_1` - Per-environment breakdown
+| Metric | Description |
+|--------|-------------|
+| `reward/avg_pass_at_1` | Primary success metric |
+| `reward/avg_pass_at_n` | Pass rate with n samples |
+| `reward/avg_raw_reward` | Average reward per episode |
+| `reward/{env_key}/pass_at_1` | Per-environment breakdown |
 
-## Testing a Small Run
+## Quick Test Run
 
-Quick validation before full training:
+Validate setup before full training:
 
 ```
 modality: tool_use
@@ -78,53 +113,17 @@ max_tasks: 4             # Few tasks
 max_steps: 10            # Tinker only
 ```
 
-## Troubleshooting
-
-### MCP Connection Timeouts
-
-```
-httpx.ConnectTimeout
-ERROR mcp.client.streamable_http: Error in post_writer
-```
-
-**Cause**: Too many concurrent Fleet environment connections.
-
-**Fix**: Tinker uses `max_concurrent=2` semaphore to limit parallel connections.
-
-### "No tools found" Errors
-
-```
-RuntimeError: Task X: no tools found in observation
-```
-
-**Cause**: MCP client failed to fetch tools from Fleet.
-
-**Fix**: OpenEnv retries with exponential backoff (3 attempts).
-
-### SkyPilot Cluster Issues
-
-```bash
-# Check cluster status
-sky status
-
-# View logs
-sky logs <cluster-name>
-
-# Force cleanup
-sky down <cluster-name> -y
-```
-
 ## Required Secrets
 
-| Secret | Used By |
-|--------|---------|
-| `FLEET_API_KEY` | Both |
-| `WANDB_API_KEY_TOOL_USE` | Both (tool_use modality) |
-| `WANDB_API_KEY_COMPUTER_USE` | Both (computer_use modality) |
-| `TINKER_API_KEY` | Tinker |
-| `LAMBDA_API_KEY` | SkyRL |
-| `RUNPOD_API_KEY` | SkyRL |
-| `VAST_API_KEY` | SkyRL |
-| `AWS_ACCESS_KEY_ID` | SkyRL (S3 datasets) |
-| `AWS_SECRET_ACCESS_KEY` | SkyRL (S3 datasets) |
-| `SLACK_BOT_TOKEN` | Notifications |
+| Secret | Used By | Purpose |
+|--------|---------|---------|
+| `FLEET_API_KEY` | Both | Fleet environment access |
+| `WANDB_API_KEY_TOOL_USE` | Both | Logging (tool_use) |
+| `WANDB_API_KEY_COMPUTER_USE` | Both | Logging (computer_use) |
+| `TINKER_API_KEY` | Tinker | Hosted inference/training |
+| `LAMBDA_API_KEY` | SkyRL | Lambda Cloud GPUs |
+| `RUNPOD_API_KEY` | SkyRL | RunPod GPUs |
+| `VAST_API_KEY` | SkyRL | Vast.ai GPUs |
+| `AWS_ACCESS_KEY_ID` | Both | S3 dataset access |
+| `AWS_SECRET_ACCESS_KEY` | Both | S3 dataset access |
+| `SLACK_BOT_TOKEN` | Both | Notifications |
