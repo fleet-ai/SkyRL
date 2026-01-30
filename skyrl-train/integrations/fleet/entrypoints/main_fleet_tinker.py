@@ -612,34 +612,6 @@ def collate_fn(batch):
     return batch
 
 
-async def save_checkpoint(
-    training_client: tinker.TrainingClient,
-    name: str,
-    save_path: str,
-    step: int,
-) -> Dict[str, str]:
-    """Save training checkpoint."""
-    state_result = await training_client.save_state_async(name)
-    state_path = (await state_result.result_async()).path
-
-    sampler_result = await training_client.save_weights_for_sampler_async(name)
-    sampler_path = (await sampler_result.result_async()).path
-
-    checkpoint_info = {
-        "name": name,
-        "step": step,
-        "state_path": state_path,
-        "sampler_path": sampler_path,
-    }
-
-    checkpoint_file = os.path.join(save_path, "checkpoints.jsonl")
-    with open(checkpoint_file, "a") as f:
-        f.write(json.dumps(checkpoint_info) + "\n")
-
-    logger.info(f"Saved checkpoint {name}: state={state_path}, sampler={sampler_path}")
-    return checkpoint_info
-
-
 async def main(
     model_name: str = "Qwen/Qwen3-VL-30B-A3B-Instruct",
     tasks_file: str = None,
@@ -655,37 +627,19 @@ async def main(
     max_input_length: int = 30720,
     max_sequence_length: int = 32768,
     n_samples_per_prompt: int = 4,
-    save_every: int = 0,  # Disabled by default - local index file lost on ephemeral runners
     eval_every: int = 20,
     seed: int = 42,
     wandb_project: str = "fleet-tinker-grpo",
     wandb_name: str = None,
-    resume_from: str = None,
 ):
     """
     Main training loop using Tinker for training/inference and Fleet for environments.
     """
     set_seed(seed)
 
-    # Setup paths
+    # Setup WandB run name
     if wandb_name is None:
         wandb_name = f"{model_name.split('/')[-1]}_{datetime.now().strftime('%m%d_%H%M')}"
-    save_path = os.path.join("./tinker_fleet_output", wandb_name)
-    os.makedirs(save_path, exist_ok=True)
-
-    # Check for resume
-    resume_from_step = 0
-    load_state_path = None
-    checkpoint_file = os.path.join(save_path, "checkpoints.jsonl")
-    if resume_from or os.path.exists(checkpoint_file):
-        if os.path.exists(checkpoint_file):
-            with open(checkpoint_file, "r") as f:
-                checkpoints = [json.loads(line) for line in f]
-            if checkpoints:
-                latest = max(checkpoints, key=lambda x: x["step"])
-                resume_from_step = latest["step"]
-                load_state_path = latest["state_path"]
-                logger.info(f"Resuming from step {resume_from_step}")
 
     # Initialize WandB
     wandb.init(
@@ -725,11 +679,6 @@ async def main(
     service_client = tinker.ServiceClient(**service_client_kwargs)
     training_client = await service_client.create_lora_training_client_async(base_model=model_name, rank=lora_rank)
 
-    if load_state_path:
-        future = await training_client.load_state_async(load_state_path)
-        await future.result_async()
-        logger.info(f"Loaded state from {load_state_path}")
-
     adam_params = types.AdamParams(learning_rate=learning_rate, beta1=0.9, beta2=0.95, eps=1e-8)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
@@ -744,34 +693,18 @@ async def main(
         )
 
     steps_per_epoch = (len(train_dataset) + batch_size - 1) // batch_size
-    current_epoch = resume_from_step // steps_per_epoch
+    current_epoch = 0
     train_dataloader = create_dataloader(current_epoch)
     train_iterator = iter(train_dataloader)
 
-    # Skip to resume position
-    batch_offset = resume_from_step % steps_per_epoch
-    for _ in range(batch_offset):
-        try:
-            next(train_iterator)
-        except StopIteration:
-            break
-
     # Training loop
-    pbar = tqdm(range(resume_from_step, max_steps), desc="Training", unit="step")
+    pbar = tqdm(range(max_steps), desc="Training", unit="step")
     for step in pbar:
         step_start = time.time()
         metrics = {"step": step, "epoch": step // steps_per_epoch}
 
-        # Save checkpoint (also creates sampler weights)
-        checkpoint_info = None
-        if save_every > 0 and step > 0 and step % save_every == 0:
-            checkpoint_info = await save_checkpoint(training_client, f"step_{step:06d}", save_path, step)
-
-        # Get sampling weights (reuse from checkpoint if just saved, otherwise create new)
-        if checkpoint_info:
-            sampling_path = checkpoint_info["sampler_path"]
-        else:
-            sampling_path = training_client.save_weights_for_sampler(name=f"step_{step:06d}").result().path
+        # Get sampler weights for rollout inference
+        sampling_path = training_client.save_weights_for_sampler(name=f"step_{step:06d}").result().path
         sampling_client = service_client.create_sampling_client(model_path=sampling_path)
 
         # Get batch
@@ -933,10 +866,6 @@ async def main(
                 wandb.log(eval_metrics, step=step, commit=True)
                 logger.info(f"Step {step}: eval pass@1={eval_pass_at_1:.3f}, avg_score={np.mean(eval_rewards):.3f}")
 
-    # Save final checkpoint (only if checkpointing enabled)
-    if save_every > 0:
-        await save_checkpoint(training_client, "final", save_path, max_steps)
-
     wandb.finish()
     logger.info("Training completed!")
 
@@ -959,12 +888,10 @@ if __name__ == "__main__":
     parser.add_argument("--max-input-length", type=int, default=30720, help="Max context length before ending rollout")
     parser.add_argument("--max-sequence-length", type=int, default=32768, help="Max sequence length for training")
     parser.add_argument("--n-samples-per-prompt", type=int, default=4)
-    parser.add_argument("--save-every", type=int, default=10)
     parser.add_argument("--eval-every", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--wandb-project", type=str, default="fleet-tinker-grpo")
     parser.add_argument("--wandb-name", type=str, default=None)
-    parser.add_argument("--resume-from", type=str, default=None)
 
     args = parser.parse_args()
 
@@ -984,11 +911,9 @@ if __name__ == "__main__":
             max_input_length=args.max_input_length,
             max_sequence_length=args.max_sequence_length,
             n_samples_per_prompt=args.n_samples_per_prompt,
-            save_every=args.save_every,
             eval_every=args.eval_every,
             seed=args.seed,
             wandb_project=args.wandb_project,
             wandb_name=args.wandb_name,
-            resume_from=args.resume_from,
         )
     )
