@@ -114,6 +114,34 @@ def prepare_fleet_dataset(
         print("No tasks remaining after filtering. Exiting.")
         return
 
+    # Deduplicate by task_key (keep first occurrence)
+    seen_task_keys: set = set()
+    unique_tasks = []
+    duplicate_count = 0
+    env_duplicate_counts: Dict[str, int] = defaultdict(int)
+
+    for task in tasks:
+        task_key = task.get("key") or task.get("task_key")
+        if not task_key:
+            continue
+        if task_key in seen_task_keys:
+            duplicate_count += 1
+            env_key = task.get("env_key") or task.get("env_id") or "unknown"
+            env_duplicate_counts[env_key] += 1
+        else:
+            seen_task_keys.add(task_key)
+            unique_tasks.append(task)
+
+    if duplicate_count > 0:
+        print(f"\n⚠️  WARNING: Removed {duplicate_count} duplicate task_keys")
+        print("  By environment:")
+        for env, count in sorted(env_duplicate_counts.items(), key=lambda x: -x[1]):
+            print(f"    {env}: {count} duplicates removed")
+        print()
+
+    tasks = unique_tasks
+    print(f"After deduplication: {len(tasks)} unique tasks")
+
     # Get held-out envs for this modality
     held_out_envs = set(HELD_OUT_ENVS.get(modality, []))
     if held_out_envs:
