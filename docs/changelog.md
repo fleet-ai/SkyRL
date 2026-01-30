@@ -1,8 +1,37 @@
 # SkyRL Fleet Training - Changelog
 
+### v0.2.5 (2026-01-29) - Run `fleet_tool_use_a7e85045`
+
+**Changes:**
+- Removed checkpoint/resume logic from Tinker (not needed currently)
+- Unified metric aggregation between SkyRL trainer and Tinker
+
+**Results (Step 80):**
+
+| Environment | Step 0 | Step 80 | Delta | Status |
+|-------------|--------|---------|-------|--------|
+| booking | 53.8% | 57.7% | +3.8% | ➖ FLAT |
+| fira | 40.0% | 40.0% | +0.0% | ➖ FLAT |
+| github | 46.7% | **70.0%** | **+23.3%** | 📈 IMPROVED |
+| hubspot | 100.0% | 100.0% | +0.0% | ✅ SATURATED |
+| outlook | 100.0% | 100.0% | +0.0% | ✅ SATURATED |
+| reddit | 66.7% | 66.7% | +0.0% | ➖ FLAT |
+| ticketmaster | 3.6% | 7.1% | +3.6% | ❌ FAILING |
+| zillow | 50.0% | 50.0% | +0.0% | ➖ FLAT |
+| **OVERALL** | 43.1% | **50.9%** | **+7.8%** | |
+
+**Trajectories:** `s3://skyrl-trajectories/evals/fleet_tool_use_a7e85045/`
+
+**Issues Found:**
+- **ticketmaster**: Only 1 unique eval task (dataset bug) - complex 5+ step e-commerce workflow
+- **hubspot/outlook**: Saturated at 100% from step 0 - no learning signal
+- **github**: Best improvement (+23.3%), training working well
+
+---
+
 ### v0.2.4 (2026-01-29) - Data Split Changes
 
-**Code change to `prepare_dataset.py`** - no new underlying data, same v0.2 source.
+**Changes:** Code change to `prepare_dataset.py` - no new underlying data, same v0.2 source.
 
 | Parameter | Before | After |
 |-----------|--------|-------|
@@ -14,9 +43,11 @@
 
 ---
 
-### v0.2.2 (2025-01-27) - Run `mk6nr5ij` Analysis
+### v0.2.2 (2025-01-27) - Run `mk6nr5ij`
 
-**Comparison: Baseline (2.9% success) → Current (43.4% pass@3)**
+**Changes:** Initial training run with v0.2 dataset fixes.
+
+**Results:**
 
 | Issue | Baseline | Current | Status |
 |-------|----------|---------|--------|
@@ -26,8 +57,6 @@
 | **Issue 3**: Tool repetition | 56% booking, 20x repeats | - | ❓ NEEDS ANALYSIS |
 | **Issue 4**: Hitting max turns | 90% hit 50 turns | booking max=6, reddit max=5 | ✅ IMPROVED |
 
-**Per-Environment Improvement:**
-
 | Environment | Baseline | Current pass@3 | Delta |
 |-------------|----------|----------------|-------|
 | GitHub | 0% | 42.1% | **+42.1%** |
@@ -35,8 +64,8 @@
 | Outlook | ~5% | 36.8% | **+31.8%** |
 | Overall | 2.9% | 43.4% | **+40.5%** |
 
-**Key Observations:**
-- GitHub environment is now responding (14.3 avg tool calls vs 1.1)
+**Observations:**
+- GitHub environment now responding (14.3 avg tool calls vs 1.1)
 - Tasks completing before max turns (booking max=6, not 50)
 - Successful trajectories use fewer tokens (6K vs 11K for failures)
 

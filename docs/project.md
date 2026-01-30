@@ -40,36 +40,26 @@ This ensures the training data contains only valid, solvable tasks with working 
 
 ## 3. Results
 
-### Run: `mk6nr5ij` ([WandB](https://wandb.ai/thefleet/fleet-task-grpo/runs/mk6nr5ij))
+### Latest: Run `fleet_tool_use_a7e85045` (Step 80)
 
-**Status**: Step 19 (running)
+**Trajectories**: `s3://skyrl-trajectories/evals/fleet_tool_use_a7e85045/`
 
-#### Held-Out Environment
+| Environment | Step 0 | Step 80 | Delta | Status |
+|-------------|--------|---------|-------|--------|
+| booking | 53.8% | 57.7% | +3.8% | ➖ FLAT |
+| fira | 40.0% | 40.0% | +0.0% | ➖ FLAT |
+| github | 46.7% | **70.0%** | **+23.3%** | 📈 IMPROVED |
+| hubspot | 100.0% | 100.0% | +0.0% | ✅ SATURATED |
+| outlook | 100.0% | 100.0% | +0.0% | ✅ SATURATED |
+| reddit | 66.7% | 66.7% | +0.0% | ➖ FLAT |
+| ticketmaster | 3.6% | 7.1% | +3.6% | ❌ FAILING |
+| zillow | 50.0% | 50.0% | +0.0% | ➖ FLAT |
+| **OVERALL** | 43.1% | **50.9%** | **+7.8%** | |
 
-| Environment | Checkpoint 0 pass@3 | Best pass@3 | Best Step | Avg Turns |
-|-------------|---------------------|-------------|-----------|-----------|
-| outlook | 36.8% | 36.8% | 0 | - |
-
-#### Held-Out Tasks (from training environments)
-
-| Environment | Checkpoint 0 pass@3 | Best pass@3 | Best Step | Avg Turns |
-|-------------|---------------------|-------------|-----------|-----------|
-| github | 42.1% | 47.4% | 10 | 8.5 |
-| booking | 52.6% | 63.2% | 10 | 3.0 |
-
-#### Training Environments
-
-| Environment | Best pass@4 | Best Step | Avg Turns |
-|-------------|-------------|-----------|-----------|
-| booking | 100% | 2 | 3.0 |
-| github | 100% | 6 | 8.5 |
-| reddit | 100% | 1 | 4.0 |
-| ticketmaster | 0% | - | 10.0 |
-| fira | - | - | - |
-| zillow | 100% | 15 | 27.0 |
-| hubspot | - | - | - |
-| google-maps | - | - | - |
-| dropbox | - | - | - |
+**Key Issues:**
+- ticketmaster: Only 1 unique eval task (dataset bug), complex 5+ step workflow
+- hubspot/outlook: Saturated at step 0, no learning signal
+- github: Best improvement, training effective
 
 ---
 
