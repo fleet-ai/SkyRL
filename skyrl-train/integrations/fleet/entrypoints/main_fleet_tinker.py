@@ -793,9 +793,9 @@ async def main(
             max_sequence_length=max_sequence_length,
         )
 
+        metrics["rollouts/truncated_overlong"] = truncated_count
         if truncated_count > 0:
             logger.info(f"Step {step}: Truncated {truncated_count} overlong sequences")
-            metrics["rollouts/truncated_overlong"] = truncated_count
 
         if not training_datums:
             logger.warning(f"Step {step}: No valid training sequences after filtering, skipping")
