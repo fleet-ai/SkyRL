@@ -1,18 +1,56 @@
-# SkyRL Fleet Training - Model Issues Analysis
+# SkyRL Fleet Training - Changelog
 
-Analysis of eval trajectories from `s3://skyrl-trajectories/evals/fleet_tool_use_92d02656/`
+### v0.2.4 (Planned)
 
-**Summary Stats:**
-- Total trajectories analyzed: 243 (57 booking, 114 github, 72 outlook)
-- Overall success rate: 2.9% (7/243 non-zero scores)
+**Hypothesis:** Learning rate too conservative, KL penalty constraining exploration.
+
+**Changes:**
+| Parameter | v0.2.3 | v0.2.4 | Rationale |
+|-----------|--------|--------|-----------|
+| `learning_rate` | 1e-6 | 5e-6 | Increase 5x - no ppo_clip_ratio hit suggests updates too small |
+| `kl_coef` | 0.01 | 0.0 | Disable KL penalty - allow more exploration |
+| `ppo_clip_ratio` | 0.2 | 0.2 | Keep default (monitor if now being hit) |
+
+**Metrics to watch:**
+- `reward/variance_per_prompt` - Should remain > 0 (learning signal exists)
+- `ppo_clip_ratio` hit rate - If now clipping, LR is effective
+- Per-env pass@n - Especially flat envs (booking, fira, reddit, zillow)
 
 ---
 
-## Changelog
+### v0.2.3 (2026-01-29) - Run `fleet_tool_use_a7e85045`
 
-### v0.2.2 (2025-01-27) - Run `mk6nr5ij` Analysis
+**Changes:**
+- Dataset split (`prepare_dataset.py`): eval_ratio 2%→10%, MAX_EVAL_SAMPLES=30, outlook no longer held-out
 
-**Comparison: Baseline (2.9% success) → Current (43.4% pass@3)**
+**Results (Step 80):**
+
+| Environment | Step 0 | Step 80 | Delta | Status |
+|-------------|--------|---------|-------|--------|
+| booking | 53.8% | 57.7% | +3.8% | ➖ FLAT |
+| fira | 40.0% | 40.0% | +0.0% | ➖ FLAT |
+| github | 46.7% | **70.0%** | **+23.3%** | 📈 IMPROVED |
+| hubspot | 100.0% | 100.0% | +0.0% | ✅ SATURATED |
+| outlook | 100.0% | 100.0% | +0.0% | ✅ SATURATED |
+| reddit | 66.7% | 66.7% | +0.0% | ➖ FLAT |
+| ticketmaster | 3.6% | 7.1% | +3.6% | ❌ FAILING |
+| zillow | 50.0% | 50.0% | +0.0% | ➖ FLAT |
+| **OVERALL** | 43.1% | **50.9%** | **+7.8%** | |
+
+**Trajectories:** `s3://skyrl-trajectories/evals/fleet_tool_use_a7e85045/`
+
+**Issues:**
+- **ticketmaster**: Only 1 unique eval task in dataset - complex 5+ step e-commerce workflow (search → details → availability → payment → purchase)
+- **hubspot/outlook**: Saturated at 100% from step 0 - no learning signal from these envs
+- **github**: Best improvement (+23.3%), training working well for this env
+
+---
+
+### v0.2.2 (2025-01-27) - Run `mk6nr5ij`
+
+**Changes:** Initial training run with v0.2 dataset fixes.
+
+**Results:**
 
 | Issue | Baseline | Current | Status |
 |-------|----------|---------|--------|
@@ -22,8 +60,6 @@ Analysis of eval trajectories from `s3://skyrl-trajectories/evals/fleet_tool_use
 | **Issue 3**: Tool repetition | 56% booking, 20x repeats | - | ❓ NEEDS ANALYSIS |
 | **Issue 4**: Hitting max turns | 90% hit 50 turns | booking max=6, reddit max=5 | ✅ IMPROVED |
 
-**Per-Environment Improvement:**
-
 | Environment | Baseline | Current pass@3 | Delta |
 |-------------|----------|----------------|-------|
 | GitHub | 0% | 42.1% | **+42.1%** |
@@ -31,8 +67,8 @@ Analysis of eval trajectories from `s3://skyrl-trajectories/evals/fleet_tool_use
 | Outlook | ~5% | 36.8% | **+31.8%** |
 | Overall | 2.9% | 43.4% | **+40.5%** |
 
-**Key Observations:**
-- GitHub environment is now responding (14.3 avg tool calls vs 1.1)
+**Observations:**
+- GitHub environment now responding (14.3 avg tool calls vs 1.1)
 - Tasks completing before max turns (booking max=6, not 50)
 - Successful trajectories use fewer tokens (6K vs 11K for failures)
 
