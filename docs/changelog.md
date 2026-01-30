@@ -3,11 +3,7 @@
 ### v0.2.3 (2026-01-29) - Run `fleet_tool_use_a7e85045`
 
 **Changes:**
-1. Dataset split changes (`prepare_dataset.py`):
-   - eval_ratio: 2% → 10%
-   - Added MAX_EVAL_SAMPLES=30 cap per environment
-   - outlook: no longer held-out, split normally
-2. Unified metric aggregation between SkyRL trainer and Tinker
+- Dataset split (`prepare_dataset.py`): eval_ratio 2%→10%, MAX_EVAL_SAMPLES=30, outlook no longer held-out
 
 **Results (Step 80):**
 
