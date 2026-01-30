@@ -1,10 +1,13 @@
 # SkyRL Fleet Training - Changelog
 
-### v0.2.5 (2026-01-29) - Run `fleet_tool_use_a7e85045`
+### v0.2.3 (2026-01-29) - Run `fleet_tool_use_a7e85045`
 
 **Changes:**
-- Removed checkpoint/resume logic from Tinker (not needed currently)
-- Unified metric aggregation between SkyRL trainer and Tinker
+1. Dataset split changes (`prepare_dataset.py`):
+   - eval_ratio: 2% → 10%
+   - Added MAX_EVAL_SAMPLES=30 cap per environment
+   - outlook: no longer held-out, split normally
+2. Unified metric aggregation between SkyRL trainer and Tinker
 
 **Results (Step 80):**
 
@@ -22,24 +25,10 @@
 
 **Trajectories:** `s3://skyrl-trajectories/evals/fleet_tool_use_a7e85045/`
 
-**Issues Found:**
-- **ticketmaster**: Only 1 unique eval task (dataset bug) - complex 5+ step e-commerce workflow
-- **hubspot/outlook**: Saturated at 100% from step 0 - no learning signal
-- **github**: Best improvement (+23.3%), training working well
-
----
-
-### v0.2.4 (2026-01-29) - Data Split Changes
-
-**Changes:** Code change to `prepare_dataset.py` - no new underlying data, same v0.2 source.
-
-| Parameter | Before | After |
-|-----------|--------|-------|
-| eval_ratio | 2% | 10% |
-| MAX_EVAL_SAMPLES | - | 30 per env |
-| outlook | held-out | split normally |
-
-**Result**: ticketmaster now gets ~22 eval samples for trace analysis (was 0).
+**Issues:**
+- **ticketmaster**: Only 1 unique eval task in dataset - complex 5+ step e-commerce workflow (search → details → availability → payment → purchase)
+- **hubspot/outlook**: Saturated at 100% from step 0 - no learning signal from these envs
+- **github**: Best improvement (+23.3%), training working well for this env
 
 ---
 
