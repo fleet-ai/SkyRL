@@ -1,5 +1,23 @@
 # SkyRL Fleet Training - Changelog
 
+### v0.2.4 (Planned)
+
+**Hypothesis:** Learning rate too conservative, KL penalty constraining exploration.
+
+**Changes:**
+| Parameter | v0.2.3 | v0.2.4 | Rationale |
+|-----------|--------|--------|-----------|
+| `learning_rate` | 1e-6 | 5e-6 | Increase 5x - no ppo_clip_ratio hit suggests updates too small |
+| `kl_coef` | 0.01 | 0.0 | Disable KL penalty - allow more exploration |
+| `ppo_clip_ratio` | 0.2 | 0.2 | Keep default (monitor if now being hit) |
+
+**Metrics to watch:**
+- `reward/variance_per_prompt` - Should remain > 0 (learning signal exists)
+- `ppo_clip_ratio` hit rate - If now clipping, LR is effective
+- Per-env pass@n - Especially flat envs (booking, fira, reddit, zillow)
+
+---
+
 ### v0.2.3 (2026-01-29) - Run `fleet_tool_use_a7e85045`
 
 **Changes:**
