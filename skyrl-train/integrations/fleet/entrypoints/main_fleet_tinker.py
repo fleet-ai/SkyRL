@@ -29,9 +29,9 @@ Architecture:
 
 Metrics (matching SkyRL):
     - reward/avg_pass_at_{n}: Pass@k across all prompts
-    - reward/avg_raw_reward: Average raw reward
+    - reward/variance_per_prompt: Mean within-prompt reward variance (GRPO learning signal)
     - reward/{env_key}/pass_at_{n}: Per-environment pass@k
-    - reward/{env_key}/avg_score: Per-environment average reward
+    - reward/{env_key}/variance_per_prompt: Per-environment variance (learning signal)
     - eval/all/pass_at_{n}: Evaluation pass@k
     - eval/{env_key}/pass_at_{n}: Per-environment eval pass@k
 """
@@ -247,7 +247,7 @@ def compute_rollout_metrics(
     # Core reward metrics using shared module
     core_metrics = compute_reward_metrics(rewards, uids, n_samples_per_prompt)
     metrics[f"reward/avg_pass_at_{n_samples_per_prompt}"] = core_metrics[f"pass_at_{n_samples_per_prompt}"]
-    metrics["reward/avg_raw_reward"] = core_metrics["avg_score"]
+    metrics["reward/variance_per_prompt"] = core_metrics["variance_per_prompt"]
     metrics["reward/mean_positive_reward"] = core_metrics["mean_positive_reward"]
 
     # Advantage metrics (Tinker-specific)
@@ -851,7 +851,6 @@ async def main(
                 eval_per_env = compute_per_env_metrics(eval_rollouts_dicts, 1)
 
                 eval_metrics = {
-                    "eval/all/avg_score": np.mean(eval_rewards),
                     "eval/all/pass_at_1": eval_pass_at_1,
                     "eval/all/mean_positive_reward": (
                         np.mean([r for r in eval_rewards if r > 0]) if any(r > 0 for r in eval_rewards) else 0.0
@@ -864,7 +863,7 @@ async def main(
                     eval_metrics[eval_key] = value
 
                 wandb.log(eval_metrics, step=step, commit=True)
-                logger.info(f"Step {step}: eval pass@1={eval_pass_at_1:.3f}, avg_score={np.mean(eval_rewards):.3f}")
+                logger.info(f"Step {step}: eval pass@1={eval_pass_at_1:.3f}, num_samples={len(all_eval_rollouts)}")
 
     wandb.finish()
     logger.info("Training completed!")

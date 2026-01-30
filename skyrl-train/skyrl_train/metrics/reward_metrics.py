@@ -5,8 +5,8 @@ This module provides shared metric calculation functions used by both:
 - Tinker integration (integrations/fleet/entrypoints/main_fleet_tinker.py)
 
 All metrics follow the same naming convention for WandB logging:
-- reward/{group}/avg_score - Mean reward for group
 - reward/{group}/pass_at_{n} - Pass@n metric for group
+- reward/{group}/variance_per_prompt - Mean within-prompt reward variance (GRPO learning signal)
 - reward/{group}/mean_positive_reward - Mean of positive rewards for group
 """
 
@@ -56,6 +56,42 @@ def compute_pass_at_n(
     return passed / len(uid_to_rewards)
 
 
+def compute_variance_per_prompt(
+    rewards: List[float],
+    uids: List[str],
+) -> float:
+    """Compute mean within-prompt reward variance (GRPO learning signal).
+
+    For GRPO to learn, there must be variance in rewards within each prompt's rollouts.
+    If all rollouts for a prompt get the same reward, there's no learning signal.
+
+    This metric computes the variance of rewards for each prompt, then returns the
+    mean variance across all prompts.
+
+    Args:
+        rewards: List of rewards (one per rollout)
+        uids: List of unique IDs (one per rollout, same uid = same prompt)
+
+    Returns:
+        Mean variance across prompts. Higher = more learning signal.
+        Returns 0.0 if no prompts or all prompts have single rollouts.
+    """
+    uid_to_rewards: Dict[str, List[float]] = defaultdict(list)
+    for uid, reward in zip(uids, rewards):
+        uid_to_rewards[uid].append(reward)
+
+    if not uid_to_rewards:
+        return 0.0
+
+    # Compute variance for each prompt (need at least 2 samples for variance)
+    variances = []
+    for r_list in uid_to_rewards.values():
+        if len(r_list) >= 2:
+            variances.append(float(np.var(r_list)))
+
+    return float(np.mean(variances)) if variances else 0.0
+
+
 def compute_reward_metrics(
     rewards: List[float],
     uids: List[str],
@@ -70,18 +106,18 @@ def compute_reward_metrics(
 
     Returns:
         Dictionary with keys:
-            - "avg_score": Mean reward across all rollouts
             - "pass_at_{n}": Pass@n metric
+            - "variance_per_prompt": Mean within-prompt reward variance (GRPO learning signal)
             - "mean_positive_reward": Mean of positive rewards only
     """
     pass_at_n = compute_pass_at_n(rewards, uids)
-    avg_score = float(np.mean(rewards)) if rewards else 0.0
+    variance = compute_variance_per_prompt(rewards, uids)
     positive_rewards = [r for r in rewards if r > 0]
     mean_positive = float(np.mean(positive_rewards)) if positive_rewards else 0.0
 
     return {
-        "avg_score": avg_score,
         f"pass_at_{n_samples_per_prompt}": pass_at_n,
+        "variance_per_prompt": variance,
         "mean_positive_reward": mean_positive,
     }
 
