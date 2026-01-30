@@ -6,62 +6,12 @@ Training an 8B parameter model (Qwen3-8B) on Fleet tool-use tasks using SkyRL's 
 
 ## 2. Dataset
 
-### v0.1 (Initial)
-
-**Summary**: 3,603 tasks (3,522 train / 81 eval)
-- 0% with env_variables
-- Missing runtime context (dates, user info)
-- Held-out environment: `outlook`
-
-| Environment | Train | Eval | Total |
-|-------------|-------|------|-------|
-| booking | 1,070 | 19 | 1,089 |
-| dropbox | 2 | 0 | 2 |
-| fira | 54 | 0 | 54 |
-| github | 1,827 | 38 | 1,865 |
-| google-maps | 13 | 0 | 13 |
-| hubspot | 12 | 0 | 12 |
-| outlook | 0 | 24 | 24 |
-| reddit | 246 | 0 | 246 |
-| ticketmaster | 222 | 0 | 222 |
-| zillow | 76 | 0 | 76 |
-| **TOTAL** | **3,522** | **81** | **3,603** |
-
-### v0.3 (Current)
-
-**Summary**: ~3,485 tasks (~3,304 train / ~181 eval)
-- 10% eval ratio, capped at 30 samples per env
-- No held-out environments (all envs split normally)
-- ticketmaster now has ~22 eval tasks for trace analysis
-
-| Environment | Train | Eval | Total |
-|-------------|-------|------|-------|
-| booking | ~1,059 | ~30 | 1,089 |
-| dropbox | 1 | 0 | 1 |
-| fira | ~46 | ~5 | 51 |
-| github | ~1,835 | ~30 | 1,865 |
-| google-maps | 7 | 0 | 7 |
-| hubspot | ~9 | ~1 | 10 |
-| outlook | ~17 | ~2 | 19 |
-| reddit | ~169 | ~19 | 188 |
-| ticketmaster | ~200 | ~22 | 222 |
-| zillow | ~30 | ~3 | 33 |
-| **TOTAL** | **~3,304** | **~181** | **3,485** |
-
-**Changes from v0.2:**
-- Increased eval_ratio: 2% → 10%
-- Added MAX_EVAL_SAMPLES: 30 per env (caps large envs)
-- Lowered MIN_EVAL_SAMPLES: 5 → 1
-- Removed outlook from held-out (now split like other envs)
-
----
-
-### v0.2
+### v0.2 (Current)
 
 **Summary**: 3,485 tasks (3,409 train / 76 eval)
 - 95% with env_variables (`CURRENT_DATE`, `LOGGED_IN_USER`, `LOGGED_IN_NAME`)
 - Held-out environment: `outlook`
-- Fixes: YaRN rope_scaling (65K context), system prompt improvements (see [model_issues.md](model_issues.md))
+- Fixes: YaRN rope_scaling (65K context), system prompt improvements (see [changelog.md](changelog.md))
 
 | Environment | Train | Eval | Total |
 |-------------|-------|------|-------|
@@ -137,6 +87,6 @@ This ensures the training data contains only valid, solvable tasks with working 
 
 - SkyRL repo: https://github.com/fleet-ai/SkyRL
 - OpenEnv repo: https://github.com/fleet-ai/OpenEnv
-- Model issues: [model_issues.md](model_issues.md)
+- Changelog: [changelog.md](changelog.md)
 - Training config: `skyrl-train/tasks/openenv-fleet-grpo-qwen3-8b.yaml`
 - Trajectories: `s3://skyrl-trajectories/evals/`

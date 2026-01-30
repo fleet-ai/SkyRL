@@ -1,14 +1,18 @@
-# SkyRL Fleet Training - Model Issues Analysis
+# SkyRL Fleet Training - Changelog
 
-Analysis of eval trajectories from `s3://skyrl-trajectories/evals/fleet_tool_use_92d02656/`
+### v0.2.4 (2026-01-29) - Data Split Changes
 
-**Summary Stats:**
-- Total trajectories analyzed: 243 (57 booking, 114 github, 72 outlook)
-- Overall success rate: 2.9% (7/243 non-zero scores)
+**Code change to `prepare_dataset.py`** - no new underlying data, same v0.2 source.
+
+| Parameter | Before | After |
+|-----------|--------|-------|
+| eval_ratio | 2% | 10% |
+| MAX_EVAL_SAMPLES | - | 30 per env |
+| outlook | held-out | split normally |
+
+**Result**: ticketmaster now gets ~22 eval samples for trace analysis (was 0).
 
 ---
-
-## Changelog
 
 ### v0.2.2 (2025-01-27) - Run `mk6nr5ij` Analysis
 

@@ -762,12 +762,16 @@ async def main(
         step_start = time.time()
         metrics = {"step": step, "epoch": step // steps_per_epoch}
 
-        # Save checkpoint
+        # Save checkpoint (also creates sampler weights)
+        checkpoint_info = None
         if save_every > 0 and step > 0 and step % save_every == 0:
-            await save_checkpoint(training_client, f"step_{step:06d}", save_path, step)
+            checkpoint_info = await save_checkpoint(training_client, f"step_{step:06d}", save_path, step)
 
-        # Get sampling weights
-        sampling_path = training_client.save_weights_for_sampler(name=f"step_{step:06d}").result().path
+        # Get sampling weights (reuse from checkpoint if just saved, otherwise create new)
+        if checkpoint_info:
+            sampling_path = checkpoint_info["sampler_path"]
+        else:
+            sampling_path = training_client.save_weights_for_sampler(name=f"step_{step:06d}").result().path
         sampling_client = service_client.create_sampling_client(model_path=sampling_path)
 
         # Get batch

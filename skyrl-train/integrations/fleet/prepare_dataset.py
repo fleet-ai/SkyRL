@@ -19,7 +19,7 @@ Split Strategy:
 v0.3 Changes:
     - Increased eval_ratio from 2% to 10%
     - Added MAX_EVAL_SAMPLES=30 cap per environment
-    - Lowered MIN_EVAL_SAMPLES from 5 to 1
+    - MIN_EVAL_SAMPLES stays at 5
     - Result: ticketmaster now gets ~22 eval samples for trace analysis
 """
 
@@ -39,7 +39,7 @@ HELD_OUT_ENVS = {
 }
 
 # Minimum number of samples required to create an eval split for an env
-MIN_EVAL_SAMPLES = 1
+MIN_EVAL_SAMPLES = 5
 
 # Maximum number of eval samples per environment (v0.3)
 # Ensures small envs like ticketmaster get eval traces without blowing up eval set size
