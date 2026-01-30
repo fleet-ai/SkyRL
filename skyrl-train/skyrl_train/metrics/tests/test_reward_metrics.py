@@ -1,7 +1,5 @@
 """Tests for reward_metrics module."""
 
-import pytest
-
 from skyrl_train.metrics.reward_metrics import (
     compute_pass_at_n,
     compute_per_group_metrics,

@@ -10,7 +10,7 @@ import json
 import torch
 import numpy as np
 from collections import defaultdict
-from skyrl_train.generators.utils import get_metrics_from_generator_output, concatenate_generator_outputs
+from skyrl_train.generators.utils import concatenate_generator_outputs
 from skyrl_train.generators.base import GeneratorOutput
 from skyrl_train.metrics.reward_metrics import compute_per_group_metrics, sanitize_metric_key
 from transformers import AutoTokenizer
