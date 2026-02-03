@@ -1,6 +1,8 @@
 name: "Test Metrics Small Config"
 
 on:
+  push:
+  pull_request:
   workflow_dispatch:
     inputs:
       modality:
@@ -47,7 +49,7 @@ permissions:
 
 env:
   TASKS_BUCKET: "fleet-internal-datasets"
-  TASKS_PREFIX: "${{ inputs.data_version }}/openenv"
+  TASKS_PREFIX: "${{ inputs.data_version || 'v0.2' }}/openenv"
 
 jobs:
   train:
@@ -97,7 +99,7 @@ jobs:
         run: |
           TIMESTAMP=$(date -u +"%Y%m%d-%H%M")
           RUN_ID=$(head -c 4 /dev/urandom | xxd -p)
-          MODALITY="${{ inputs.modality }}"
+          MODALITY="${{ inputs.modality || 'tool_use' }}"
           # Convert underscores to dashes (tool_use -> tool-use)
           MODALITY_DASH=$(echo "$MODALITY" | tr '_' '-')
           RUN_NAME="gmetrics-test-${MODALITY_DASH}-${RUN_ID}-${TIMESTAMP}"
@@ -107,7 +109,7 @@ jobs:
 
       - name: Validate data version
         run: |
-          DATA_VERSION="${{ inputs.data_version }}"
+          DATA_VERSION="${{ inputs.data_version || 'v0.2' }}"
           echo "Checking if data version '$DATA_VERSION' exists in S3..."
           if ! aws s3 ls "s3://${{ env.TASKS_BUCKET }}/${DATA_VERSION}/openenv/" > /dev/null 2>&1; then
             echo "ERROR: Data version '$DATA_VERSION' not found in S3"
@@ -119,7 +121,7 @@ jobs:
 
       - name: Download tasks from S3
         run: |
-          MODALITY="${{ inputs.modality }}"
+          MODALITY="${{ inputs.modality || 'tool_use' }}"
           TASKS_FILE="all_${MODALITY}.json"
           mkdir -p ./data
           aws s3 cp "s3://${{ env.TASKS_BUCKET }}/${{ env.TASKS_PREFIX }}/${TASKS_FILE}" ./data/tasks.json
@@ -132,9 +134,9 @@ jobs:
         run: |
           source .venv/bin/activate
 
-          MODALITY="${{ inputs.modality }}"
-          ENV_KEY="${{ inputs.env_key }}"
-          MAX_TASKS="${{ inputs.max_tasks }}"
+          MODALITY="${{ inputs.modality || 'tool_use' }}"
+          ENV_KEY="${{ inputs.env_key || '' }}"
+          MAX_TASKS="${{ inputs.max_tasks || '' }}"
 
           PREPARE_CMD="python -m integrations.fleet.prepare_dataset"
           PREPARE_CMD="$PREPARE_CMD --tasks-json ../data/tasks.json"
@@ -176,16 +178,16 @@ jobs:
                   "fields": [
                     { "type": "mrkdwn", "text": "*Run:*\n`${{ steps.run.outputs.name }}`" },
                     { "type": "mrkdwn", "text": "*Backend:*\n`Tinker`" },
-                    { "type": "mrkdwn", "text": "*Model:*\n`${{ inputs.model_name }}`" },
-                    { "type": "mrkdwn", "text": "*Modality:*\n`${{ inputs.modality }}`" }
+                    { "type": "mrkdwn", "text": "*Model:*\n`${{ inputs.model_name || 'Qwen/Qwen3-8B' }}`" },
+                    { "type": "mrkdwn", "text": "*Modality:*\n`${{ inputs.modality || 'tool_use' }}`" }
                   ]
                 },
                 {
                   "type": "section",
                   "fields": [
                     { "type": "mrkdwn", "text": "*Env Filter:*\n`${{ inputs.env_key || 'all' }}`" },
-                    { "type": "mrkdwn", "text": "*Max Steps:*\n`${{ inputs.max_steps }}`" },
-                    { "type": "mrkdwn", "text": "*Batch Size:*\n`${{ inputs.batch_size }}`" }
+                    { "type": "mrkdwn", "text": "*Max Steps:*\n`${{ inputs.max_steps || '50' }}`" },
+                    { "type": "mrkdwn", "text": "*Batch Size:*\n`${{ inputs.batch_size || '8' }}`" }
                   ]
                 },
                 {
@@ -209,13 +211,13 @@ jobs:
           source .venv/bin/activate
 
           python -m integrations.fleet.entrypoints.main_fleet_tinker \
-            --model-name "${{ inputs.model_name }}" \
+            --model-name "${{ inputs.model_name || 'Qwen/Qwen3-8B' }}" \
             --tasks-file ../data/tasks.json \
             --dataset-file ../data/fleet/train.parquet \
             --eval-dataset-file ../data/fleet/validation.parquet \
-            --batch-size ${{ inputs.batch_size }} \
-            --max-steps ${{ inputs.max_steps }} \
-            --n-samples-per-prompt ${{ inputs.n_samples_per_prompt }} \
+            --batch-size ${{ inputs.batch_size || '8' }} \
+            --max-steps ${{ inputs.max_steps || '50' }} \
+            --n-samples-per-prompt ${{ inputs.n_samples_per_prompt || '4' }} \
             --max-turns 50 \
             --eval-every 20 \
             --wandb-project fleet-tinker-grpo \
@@ -243,7 +245,7 @@ jobs:
                   "fields": [
                     { "type": "mrkdwn", "text": "*Run:*\n`${{ steps.run.outputs.name }}`" },
                     { "type": "mrkdwn", "text": "*Backend:*\n`Tinker`" },
-                    { "type": "mrkdwn", "text": "*Model:*\n`${{ inputs.model_name }}`" },
+                    { "type": "mrkdwn", "text": "*Model:*\n`${{ inputs.model_name || 'Qwen/Qwen3-8B' }}`" },
                     { "type": "mrkdwn", "text": "*Status:*\n`COMPLETED`" }
                   ]
                 },
@@ -281,7 +283,7 @@ jobs:
                   "fields": [
                     { "type": "mrkdwn", "text": "*Run:*\n`${{ steps.run.outputs.name }}`" },
                     { "type": "mrkdwn", "text": "*Backend:*\n`Tinker`" },
-                    { "type": "mrkdwn", "text": "*Model:*\n`${{ inputs.model_name }}`" },
+                    { "type": "mrkdwn", "text": "*Model:*\n`${{ inputs.model_name || 'Qwen/Qwen3-8B' }}`" },
                     { "type": "mrkdwn", "text": "*Status:*\n`FAILED`" }
                   ]
                 },
@@ -319,7 +321,7 @@ jobs:
                   "fields": [
                     { "type": "mrkdwn", "text": "*Run:*\n`${{ steps.run.outputs.name }}`" },
                     { "type": "mrkdwn", "text": "*Backend:*\n`Tinker`" },
-                    { "type": "mrkdwn", "text": "*Model:*\n`${{ inputs.model_name }}`" },
+                    { "type": "mrkdwn", "text": "*Model:*\n`${{ inputs.model_name || 'Qwen/Qwen3-8B' }}`" },
                     { "type": "mrkdwn", "text": "*Status:*\n`CANCELLED`" }
                   ]
                 },
@@ -340,13 +342,13 @@ jobs:
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Run | \`${{ steps.run.outputs.name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Model | \`${{ inputs.model_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Model | \`${{ inputs.model_name || 'Qwen/Qwen3-8B' }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend | Tinker (hosted) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Modality | \`${{ inputs.modality }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Modality | \`${{ inputs.modality || 'tool_use' }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Env Filter | \`${{ inputs.env_key || 'all' }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Max Tasks | \`${{ inputs.max_tasks || 'all' }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Max Steps | \`${{ inputs.max_steps }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Batch Size | \`${{ inputs.batch_size }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Max Steps | \`${{ inputs.max_steps || '50' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Batch Size | \`${{ inputs.batch_size || '8' }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Links" >> $GITHUB_STEP_SUMMARY
           echo "- [WandB Dashboard](https://wandb.ai/thefleet/fleet-tinker-grpo)" >> $GITHUB_STEP_SUMMARY
