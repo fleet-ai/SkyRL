@@ -1081,9 +1081,12 @@ class RayPPOTrainer:
                 mini_batch = data[start_idx:end_idx]
 
                 status = self.dispatch.forward_backward(model, mini_batch)
+                grad_metrics = self.dispatch.compute_gradient_metrics(model)
                 for k, v in status.items():
                     all_metrics[k].append(v)
-
+                for k, v in grad_metrics.items():
+                    all_metrics[k].append(v)
+                
                 # Optimizer step after each mini batch
                 grad_norm = self.dispatch.optim_step(model)
                 if grad_norm is not None:
