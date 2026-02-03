@@ -721,7 +721,6 @@ class PolicyWorkerBase(Worker):
             return 0.0
 
         snr_values = []
-        count = self._grad_stats["count"]
 
         for name in self._grad_stats["mean"]:
             mean = self._grad_stats["mean"][name]
