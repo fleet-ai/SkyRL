@@ -4,7 +4,9 @@ from typing import List, Dict
 from skyrl_train.training_batch import TrainingInputBatch
 
 
-def reduce_metrics(metrics: Dict[str, List[float]], ignore_keys: list[str] = []) -> Dict[str, int | float | list[float]]:
+def reduce_metrics(
+    metrics: Dict[str, List[float]], ignore_keys: list[str] = []
+) -> Dict[str, int | float | list[float]]:
     """
     Reduce metrics from a list of entries per key.
     """
@@ -17,6 +19,7 @@ def reduce_metrics(metrics: Dict[str, List[float]], ignore_keys: list[str] = [])
             assert all(isinstance(x, (int, float)) for x in v), f"Metrics for key {k} are not all numbers"
             reduced_metrics[k] = sum(v) / len(v)
     return reduced_metrics
+
 
 class BatchIterator:
     """A simple iterator to yield micro batches of data from the training batch."""
