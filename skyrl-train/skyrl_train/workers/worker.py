@@ -666,7 +666,7 @@ class PolicyWorkerBase(Worker):
             "histograms": {}, # List[Dict[layer, histogram]] - for update diversity
         }
         return
-
+    
     def _accumulate_gradient_stats(self):
         """Accumulate gradient statistics for cross-step metrics (SNR, bits edited, update diversity)."""
         self._grad_stats["count"] += 1
@@ -688,6 +688,28 @@ class PolicyWorkerBase(Worker):
             delta2 = grad - self._grad_stats["mean"][name]
             self._grad_stats["var"][name] += delta * delta2  # M2 accumulator
             
+            # Compute and store histogram snapshot for this step
+            step_histograms = {}
+            for name, param in self.model.named_parameters():
+                if param.grad is not None:
+                    hist = torch.histc(param.grad.flatten(), bins=50)
+                    step_histograms[name] = hist / hist.sum()
+            self._grad_stats["histograms"].append(step_histograms)
+        return
+
+    def compute_gradient_metrics(self) -> Dict[str, float]:
+        """Compute all 3 gradient-based metrics."""
+        return {
+            "grad:snr": self._compute_snr(),
+            "grad:bits_edited": self._compute_bits_edited(),
+            "grad:update_diversity": self._compute_update_diversity(),
+        }
+
+    def _compute_snr(self) -> float: ...
+    def _compute_bits_edited(self) -> float: ...
+    def _compute_update_diversity(self) -> float: ...
+    def reset_gradient_stats(self): ...
+
 
     def forward_backward(self, data: TrainingInputBatch) -> Dict[str, float]:
         """
