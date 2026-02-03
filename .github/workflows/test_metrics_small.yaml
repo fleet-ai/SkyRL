@@ -1,4 +1,4 @@
-name: Test Metrics Small Config
+name: "Test Metrics Small Config"
 
 on:
   workflow_dispatch:
@@ -219,7 +219,8 @@ jobs:
             --max-turns 50 \
             --eval-every 20 \
             --wandb-project fleet-tinker-grpo \
-            --wandb-name "${{ steps.run.outputs.name }}"
+            --wandb-name "${{ steps.run.outputs.name }}" \
+            --track-extra-gradient-metrics=true
 
       - name: Notify Slack - Training Completed
         if: success() && steps.slack_start.outputs.ts
