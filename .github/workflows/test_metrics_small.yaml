@@ -1,5 +1,72 @@
-modality: tool_use
-env_key: github          # Single environment
-max_tasks: 4             # Few tasks
-max_steps: 10            # Tinker only
-model_name: Qwen/Qwen3-8B
+name: Test Metrics Small Config
+
+on:
+  push:
+    branches:
+      - main
+      - rc/**
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  checks: write
+  contents: read
+
+# Cancel runs for previous commits on the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check_code_quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          activate-environment: true
+      - name: Run pre-commit hooks
+        run: uv pip install pre-commit; pre-commit run --all-files --config .pre-commit-config.yaml
+
+  test_metrics_small:
+    needs: check_code_quality
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./skyrl-train
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          activate-environment: true
+      - name: Install skyrl-train
+        run: uv sync --frozen --extra dev
+
+      - name: Run small metrics tests
+        run: |
+          uv run --frozen pytest tests/ \
+            -v \
+            --tb=short \
+            -k "gradient_metrics or test_metrics"
+        env:
+          # Config from test_metrics_small.yaml
+          MODALITY: tool_use
+          ENV_KEY: github
+          MAX_TASKS: 4
+          MAX_STEPS: 10
+          MODEL_NAME: Qwen/Qwen3-8B
