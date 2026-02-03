@@ -727,8 +727,12 @@ class PolicyWorkerBase(Worker):
             mean = self._grad_stats["mean"][name]
             m2 = self._grad_stats["var_numerator"][name]  # This stores M2, not variance
 
-            # Compute variance from M2
-            variance = m2 / count
+            # Compute variance from M2 (use Bessel's correction for unbiased estimate)
+            # When count <= 1, variance is undefined, so return 0
+            if self._grad_stats["count"] <= 1:
+                variance = torch.zeros_like(m2)
+            else:
+                variance = m2 / (self._grad_stats["count"] - 1)
             std = torch.sqrt(variance + 1e-8)  # Add epsilon to avoid division by zero
 
             # Compute per-element SNR and average
@@ -788,8 +792,9 @@ class PolicyWorkerBase(Worker):
             return []
         all_grads = torch.cat(all_grads)
         hist = torch.histc(all_grads, bins=50)
-        hist = hist / hist.sum()
-        return hist.cpu().tolist()  # Return normalized histogram as list
+        hist = torch.nn.functional.softmax(hist, dim = 0)
+        # Return normalized histogram as probability distribution
+        return hist.cpu().tolist()
 
     def reset_gradient_stats(self):
         """Reset gradient statistics for next accumulation period."""
@@ -823,7 +828,7 @@ class PolicyWorkerBase(Worker):
             for k, v in metrics.items():
                 all_metrics[k].append(v)
 
-        return reduce_metrics(dict(all_metrics))
+        return reduce_metrics(dict(all_metrics), ignore_keys=["grad:update_diversity"])
 
     def _forward_backward_micro(self, experience: Experience) -> Dict[str, float]:
         """
@@ -1074,7 +1079,7 @@ class CriticWorkerBase(Worker):
             for k, v in metrics.items():
                 all_metrics[k].append(v)
 
-        return reduce_metrics(dict(all_metrics))
+        return reduce_metrics(dict(all_metrics), ignore_keys=["grad:update_diversity"])
 
     def _forward_backward_micro(self, experience: Experience) -> Dict[str, float]:
         """

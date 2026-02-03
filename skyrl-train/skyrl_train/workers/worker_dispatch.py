@@ -172,6 +172,11 @@ class WorkerDispatch:
         results = ray.get(refs)
         return results[0]
 
+    def reset_gradient_stats(self, model: str) -> None:
+        """Reset gradient statistics accumulation state in the worker."""
+        refs = self._actor_groups[model].async_run_ray_method("pass_through", "reset_gradient_stats")
+        ray.get(refs)
+
     # TODO(tgriggs): Remove this when Megatron supports forward_backward and optim_step.
     def ppo_train(self, model: str, data: TrainingInputBatch) -> Dict[str, float]:
         """Run full PPO training loop (for Megatron)."""
