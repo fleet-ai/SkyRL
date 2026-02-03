@@ -697,13 +697,14 @@ class PolicyWorkerBase(Worker):
             self._grad_stats["histograms"].append(step_histograms)
         return
 
-    def compute_gradient_metrics(self) -> Dict[str, float]:
+    def compute_gradient_metrics(self) -> Dict[str, float | int | list[float]]:
         """Compute all 3 gradient-based metrics."""
-        return {
+        grad_metrics = {
             "grad:snr": self._compute_snr(),
             "grad:bits_edited": self._compute_bits_edited(),
             "grad:update_diversity": self._compute_update_diversity(),
         }
+        return grad_metrics
 
     def _compute_snr(self, start_clip: int = 10) -> float:
         """
@@ -739,7 +740,7 @@ class PolicyWorkerBase(Worker):
 
         return sum(snr_values) / len(snr_values)
 
-    def _compute_bits_edited(self) -> float:
+    def _compute_bits_edited(self) -> int:
         """
         Estimate bits of information edited based on significant gradient updates.
 
@@ -747,7 +748,7 @@ class PolicyWorkerBase(Worker):
         Bits edited = floor(3.6 * number of significant gradients).
         """
         if self._grad_stats["count"] == 0:
-            return 0.0
+            return 0
 
         significant_count = 0
 
@@ -764,17 +765,19 @@ class PolicyWorkerBase(Worker):
             significant_count += significant
 
         # 3.6 bits per significant gradient update
+        # source: http://arxiv.org/abs/2505.24832
         return int(3.6 * significant_count) # int() as an approximate for floor.
 
-    def _compute_update_diversity(self) -> float:
+    def _compute_update_diversity(self) -> list[float]:
         """
-        Compute update diversity as entropy of aggregated gradient histogram.
+        Compute update diversity as aggregated gradient histogram distribution.
 
-        Aggregates all mean gradients into a single histogram and computes
-        its entropy. Higher entropy = more diverse gradient distribution.
+        Aggregates all mean gradients into a single histogram and returns the
+        normalized probability distribution. This can be used with cosine
+        similarity to measure gradient pattern differences across environments.
         """
         if self._grad_stats["count"] == 0:
-            return 0.0
+            return []
 
         # Collect all mean gradients into a single tensor
         all_grads = []
@@ -782,14 +785,11 @@ class PolicyWorkerBase(Worker):
             all_grads.append(self._grad_stats["mean"][name].flatten())
 
         if len(all_grads) == 0:
-            return 0.0
+            return []
         all_grads = torch.cat(all_grads)
         hist = torch.histc(all_grads, bins=50)
         hist = hist / hist.sum()
-        # Compute entropy: -sum(p * log(p))
-        hist = hist + 1e-10  # Avoid log(0)
-        entropy = -torch.sum(hist * torch.log(hist)).item()
-        return entropy
+        return hist.cpu().tolist()  # Return normalized histogram as list
 
     def reset_gradient_stats(self):
         """Reset gradient statistics for next accumulation period."""
@@ -946,7 +946,7 @@ class PolicyWorkerBase(Worker):
             grad_norm = grad_norm.detach().cpu().item()
         return grad_norm
 
-    def all_reduce_metrics(self, status: Dict[str, float]) -> Dict[str, float]:
+    def all_reduce_metrics(self, status: Dict[str, int | float | list[float]]) -> Dict[str, int | float | list[float]]:
         """
         All-reduce metrics across data parallel workers.
         """
@@ -1153,7 +1153,7 @@ class CriticWorkerBase(Worker):
             grad_norm = grad_norm.detach().cpu().item()
         return grad_norm
 
-    def all_reduce_metrics(self, status: Dict[str, float]) -> Dict[str, float]:
+    def all_reduce_metrics(self, status: Dict[str, int | float | list[float]]) -> Dict[str, int | float | list[float]]:
         """
         All-reduce metrics across data parallel workers.
         """

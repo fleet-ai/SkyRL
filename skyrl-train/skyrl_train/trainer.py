@@ -1093,7 +1093,7 @@ class RayPPOTrainer:
                     all_metrics["grad_norm"].append(grad_norm)
 
         # Reduce metrics across all mini-batches and epochs
-        reduced_metrics = reduce_metrics(all_metrics)
+        reduced_metrics = reduce_metrics(all_metrics, ignore_keys= ["grad:update_diversity"])
         return reduced_metrics
 
     def train_critic_and_policy(self, data: TrainingInputBatch):
