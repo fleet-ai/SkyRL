@@ -663,7 +663,7 @@ class PolicyWorkerBase(Worker):
             "mean": {},       # Dict[param_name, Tensor] - running mean per param
             "var_numerator": {},         # Dict[param_name, Tensor] - running M2 for variance.
             "count": 0,       # int - number of steps accumulated
-            "histograms": {}, # List[Dict[layer, histogram]] - for update diversity
+            "histograms": [], # List[Dict[layer, histogram]] - for update diversity
         }
         return
     
@@ -671,6 +671,8 @@ class PolicyWorkerBase(Worker):
         """Accumulate gradient statistics for cross-step metrics (SNR, bits edited, update diversity)."""
         self._grad_stats["count"] += 1
         n = self._grad_stats["count"]
+
+        step_histograms = {}
 
         for name, param in self.model.named_parameters():
             if param.grad is None:
@@ -687,14 +689,12 @@ class PolicyWorkerBase(Worker):
             self._grad_stats["mean"][name] += delta / n
             delta2 = grad - self._grad_stats["mean"][name]
             self._grad_stats["var_numerator"][name] += delta * delta2  # M2 accumulator
-            
-            # Compute and store histogram snapshot for this step
-            step_histograms = {}
-            for name, param in self.model.named_parameters():
-                if param.grad is not None:
-                    hist = torch.histc(param.grad.flatten(), bins=50)
-                    step_histograms[name] = hist / hist.sum()
-            self._grad_stats["histograms"].append(step_histograms)
+
+            # Histogram for this param
+            hist = torch.histc(grad.flatten(), bins=50)
+            step_histograms[name] = hist / hist.sum()
+
+        self._grad_stats["histograms"].append(step_histograms)
         return
 
     def compute_gradient_metrics(self) -> Dict[str, float | int | list[float]]:
@@ -797,7 +797,7 @@ class PolicyWorkerBase(Worker):
             "mean": {},
             "var_numerator": {},
             "count": 0,
-            "histograms": {},
+            "histograms": [],
         }
 
 
@@ -904,7 +904,8 @@ class PolicyWorkerBase(Worker):
         self.strategy.backward(loss, self.model, self.optimizer)
 
         # Accumulate gradient statistics for cross-step metrics
-        self._accumulate_gradient_stats()
+        if self.cfg.trainer.policy.track_extra_gradient_metrics:
+            self._accumulate_gradient_stats()
 
         status = {
             "final_loss": loss.item(),
