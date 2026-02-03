@@ -658,6 +658,37 @@ class PolicyWorkerBase(Worker):
         # Track micro batches for gradient scaling at optim_step
         self._micro_batches_accumulated = 0
 
+        # Gradient statistics for cross-step metrics (SNR, bits edited, update diversity)
+        self._grad_stats = {
+            "mean": {},       # Dict[param_name, Tensor] - running mean per param
+            "var": {},         # Dict[param_name, Tensor] - running M2 for variance.
+            "count": 0,       # int - number of steps accumulated
+            "histograms": {}, # List[Dict[layer, histogram]] - for update diversity
+        }
+        return
+
+    def _accumulate_gradient_stats(self):
+        """Accumulate gradient statistics for cross-step metrics (SNR, bits edited, update diversity)."""
+        self._grad_stats["count"] += 1
+        n = self._grad_stats["count"]
+
+        for name, param in self.model.named_parameters():
+            if param.grad is None:
+                continue
+            grad = param.grad.detach()
+
+            # Initialize on first step
+            if name not in self._grad_stats["mean"]:
+                self._grad_stats["mean"][name] = torch.zeros_like(grad)
+                self._grad_stats["var"][name] = torch.zeros_like(grad)  # stores M2 (sum of squared deviations)
+
+            # Welford's online update for running mean and variance
+            delta = grad - self._grad_stats["mean"][name]
+            self._grad_stats["mean"][name] += delta / n
+            delta2 = grad - self._grad_stats["mean"][name]
+            self._grad_stats["var"][name] += delta * delta2  # M2 accumulator
+            
+
     def forward_backward(self, data: TrainingInputBatch) -> Dict[str, float]:
         """
         Perform forward and backward passes for a batch, handling micro-batching internally.
@@ -759,6 +790,9 @@ class PolicyWorkerBase(Worker):
 
         loss = policy_loss + kl_loss_term - entropy_loss_term
         self.strategy.backward(loss, self.model, self.optimizer)
+
+        # Accumulate gradient statistics for cross-step metrics
+        self._accumulate_gradient_stats()
 
         status = {
             "final_loss": loss.item(),

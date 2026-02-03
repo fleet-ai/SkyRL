@@ -15,6 +15,29 @@ def reduce_metrics(metrics: Dict[str, List[float]]) -> Dict[str, float]:
         reduced_metrics[k] = sum(v) / len(v)
     return reduced_metrics
 
+def reduce_gradient_metrics(metrics: Dict[str, List[float]]):
+    """
+    Gradient based Matrics for 
+    
+    :param metrics: Description
+    :type metrics: Dict[str, List[float]]
+    :return: Description
+    :rtype: Generator[Any, Any, None]
+    """    
+    grad_norm = metrics.get("grad_norm", [])
+    if len(grad_norm) == 0:
+        metrics["grad:bits_info_edited"] = []
+        metrics["grad:signal_to_noise"] = []
+        metrics["grad:grad_histogram"] = []
+        return
+    else:
+        ...
+        #logic for our 3 gradient-based metrics of interest.
+    return
+
+    
+
+
 
 class BatchIterator:
     """A simple iterator to yield micro batches of data from the training batch."""
