@@ -660,13 +660,13 @@ class PolicyWorkerBase(Worker):
 
         # Gradient statistics for cross-step metrics (SNR, bits edited, update diversity)
         self._grad_stats = {
-            "mean": {},       # Dict[param_name, Tensor] - running mean per param
-            "var_numerator": {},         # Dict[param_name, Tensor] - running M2 for variance.
-            "count": 0,       # int - number of steps accumulated
-            "histograms": [], # List[Dict[layer, histogram]] - for update diversity
+            "mean": {},  # Dict[param_name, Tensor] - running mean per param
+            "var_numerator": {},  # Dict[param_name, Tensor] - running M2 for variance.
+            "count": 0,  # int - number of steps accumulated
+            "histograms": [],  # List[Dict[layer, histogram]] - for update diversity
         }
         return
-    
+
     def _accumulate_gradient_stats(self):
         """Accumulate gradient statistics for cross-step metrics (SNR, bits edited, update diversity)."""
         self._grad_stats["count"] += 1
@@ -682,7 +682,9 @@ class PolicyWorkerBase(Worker):
             # Initialize on first step
             if name not in self._grad_stats["mean"]:
                 self._grad_stats["mean"][name] = torch.zeros_like(grad)
-                self._grad_stats["var_numerator"][name] = torch.zeros_like(grad)  # stores M2 (sum of squared deviations)
+                self._grad_stats["var_numerator"][name] = torch.zeros_like(
+                    grad
+                )  # stores M2 (sum of squared deviations)
 
             # Welford's online update for running mean and variance
             delta = grad - self._grad_stats["mean"][name]
@@ -692,7 +694,7 @@ class PolicyWorkerBase(Worker):
 
             # Histogram for this param
             hist = torch.histc(grad.flatten(), bins=50)
-            step_histograms[name] = torch.nn.functional.softmax(hist, dim = 0).cpu().tolist()
+            step_histograms[name] = torch.nn.functional.softmax(hist, dim=0).cpu().tolist()
 
         self._grad_stats["histograms"].append(step_histograms)
         return
@@ -769,7 +771,7 @@ class PolicyWorkerBase(Worker):
 
         # 3.6 bits per significant gradient update
         # source: http://arxiv.org/abs/2505.24832
-        return int(3.6 * significant_count) # int() as an approximate for floor.
+        return int(3.6 * significant_count)  # int() as an approximate for floor.
 
     def _compute_update_diversity(self) -> list[float]:
         """
@@ -791,6 +793,7 @@ class PolicyWorkerBase(Worker):
             return []
         all_grads = torch.cat(all_grads)
         hist = torch.histc(all_grads, bins=50)
+        hist = hist / hist.sum()  # Normalize to probability distribution
         hist = torch.nn.functional.softmax(hist, dim=0)  # Apply softmax for emphasis
         # Return probability distribution as list
         return hist.cpu().tolist()
@@ -803,7 +806,6 @@ class PolicyWorkerBase(Worker):
             "count": 0,
             "histograms": [],
         }
-
 
     def forward_backward(self, data: TrainingInputBatch) -> Dict[str, float]:
         """
