@@ -661,7 +661,7 @@ class PolicyWorkerBase(Worker):
         # Gradient statistics for cross-step metrics (SNR, bits edited, update diversity)
         self._grad_stats = {
             "mean": {},       # Dict[param_name, Tensor] - running mean per param
-            "var": {},         # Dict[param_name, Tensor] - running M2 for variance.
+            "var_numerator": {},         # Dict[param_name, Tensor] - running M2 for variance.
             "count": 0,       # int - number of steps accumulated
             "histograms": {}, # List[Dict[layer, histogram]] - for update diversity
         }
@@ -680,13 +680,13 @@ class PolicyWorkerBase(Worker):
             # Initialize on first step
             if name not in self._grad_stats["mean"]:
                 self._grad_stats["mean"][name] = torch.zeros_like(grad)
-                self._grad_stats["var"][name] = torch.zeros_like(grad)  # stores M2 (sum of squared deviations)
+                self._grad_stats["var_numerator"][name] = torch.zeros_like(grad)  # stores M2 (sum of squared deviations)
 
             # Welford's online update for running mean and variance
             delta = grad - self._grad_stats["mean"][name]
             self._grad_stats["mean"][name] += delta / n
             delta2 = grad - self._grad_stats["mean"][name]
-            self._grad_stats["var"][name] += delta * delta2  # M2 accumulator
+            self._grad_stats["var_numerator"][name] += delta * delta2  # M2 accumulator
             
             # Compute and store histogram snapshot for this step
             step_histograms = {}
@@ -705,10 +705,100 @@ class PolicyWorkerBase(Worker):
             "grad:update_diversity": self._compute_update_diversity(),
         }
 
-    def _compute_snr(self) -> float: ...
-    def _compute_bits_edited(self) -> float: ...
-    def _compute_update_diversity(self) -> float: ...
-    def reset_gradient_stats(self): ...
+    def _compute_snr(self, start_clip: int = 10) -> float:
+        """
+        Compute gradient Signal-to-Noise Ratio across all parameters.
+
+        SNR = |E[∇θ]| / std(∇θ) measures consistency of gradient direction.
+        High SNR = gradients point consistently in same direction across steps.
+        Low SNR = noisy/inconsistent gradient directions.
+        ---
+        Args:
+            1. start_clip: Minimum number of steps before computing SNR.
+        """
+        if self._grad_stats["count"] < start_clip:
+            return 0.0
+
+        snr_values = []
+        count = self._grad_stats["count"]
+
+        for name in self._grad_stats["mean"]:
+            mean = self._grad_stats["mean"][name]
+            m2 = self._grad_stats["var_numerator"][name]  # This stores M2, not variance
+
+            # Compute variance from M2
+            variance = m2 / count
+            std = torch.sqrt(variance + 1e-8)  # Add epsilon to avoid division by zero
+
+            # Compute per-element SNR and average
+            snr = torch.abs(mean) / std
+            snr_values.append(snr.mean().item())
+
+        if len(snr_values) == 0:
+            return 0.0
+
+        return sum(snr_values) / len(snr_values)
+
+    def _compute_bits_edited(self) -> float:
+        """
+        Estimate bits of information edited based on significant gradient updates.
+
+        A gradient is "significant" if |grad| > 5% of |param|.
+        Bits edited = floor(3.6 * number of significant gradients).
+        """
+        if self._grad_stats["count"] == 0:
+            return 0.0
+
+        significant_count = 0
+
+        for name, param in self.model.named_parameters():
+            if name not in self._grad_stats["mean"]:
+                continue
+
+            mean_grad = self._grad_stats["mean"][name]
+            param_magnitude = torch.abs(param.data)
+
+            # Count gradients where |mean_grad| > 5% of |param|
+            threshold = 0.05 * param_magnitude
+            significant = (torch.abs(mean_grad) > threshold).sum().item()
+            significant_count += significant
+
+        # 3.6 bits per significant gradient update
+        return int(3.6 * significant_count) # int() as an approximate for floor.
+
+    def _compute_update_diversity(self) -> float:
+        """
+        Compute update diversity as entropy of aggregated gradient histogram.
+
+        Aggregates all mean gradients into a single histogram and computes
+        its entropy. Higher entropy = more diverse gradient distribution.
+        """
+        if self._grad_stats["count"] == 0:
+            return 0.0
+
+        # Collect all mean gradients into a single tensor
+        all_grads = []
+        for name in self._grad_stats["mean"]:
+            all_grads.append(self._grad_stats["mean"][name].flatten())
+
+        if len(all_grads) == 0:
+            return 0.0
+        all_grads = torch.cat(all_grads)
+        hist = torch.histc(all_grads, bins=50)
+        hist = hist / hist.sum()
+        # Compute entropy: -sum(p * log(p))
+        hist = hist + 1e-10  # Avoid log(0)
+        entropy = -torch.sum(hist * torch.log(hist)).item()
+        return entropy
+
+    def reset_gradient_stats(self):
+        """Reset gradient statistics for next accumulation period."""
+        self._grad_stats = {
+            "mean": {},
+            "var_numerator": {},
+            "count": 0,
+            "histograms": {},
+        }
 
 
     def forward_backward(self, data: TrainingInputBatch) -> Dict[str, float]:
