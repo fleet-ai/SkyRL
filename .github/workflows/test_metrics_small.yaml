@@ -38,10 +38,6 @@ jobs:
   test_metrics_small:
     needs: check_code_quality
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
-        working-directory: ./skyrl-train
 
     steps:
       - uses: actions/checkout@v4
@@ -52,21 +48,29 @@ jobs:
           cache: 'pip'
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@v6
-        with:
-          activate-environment: true
-      - name: Install skyrl-train
-        run: uv sync --frozen --extra dev
 
-      - name: Run small metrics tests
+      - name: Install skyrl-train dependencies
+        working-directory: ./skyrl-train
         run: |
-          uv run --frozen pytest tests/ \
-            -v \
-            --tb=short \
-            -k "gradient_metrics or test_metrics"
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev]"
+
+      - name: Run tinker with small metrics config
+        working-directory: ./skyrl-train
+        run: |
+          source .venv/bin/activate
+          python -m skyrl_train.main \
+            --config-name tinker \
+            trainer.update_epochs_per_batch=1 \
+            trainer.policy.track_extra_gradient_metrics=true \
+            generator.n_samples_per_prompt=4 \
+            generator.max_steps=10 \
+            model.model_name_or_path=Qwen/Qwen3-8B \
+            --experiment-name "metrics_small_$(date +%s)"
         env:
-          # Config from test_metrics_small.yaml
+          # Small config settings for faster iteration
           MODALITY: tool_use
           ENV_KEY: github
           MAX_TASKS: 4
           MAX_STEPS: 10
-          MODEL_NAME: Qwen/Qwen3-8B
