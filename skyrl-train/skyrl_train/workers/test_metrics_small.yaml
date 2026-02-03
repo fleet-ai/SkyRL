@@ -1,0 +1,5 @@
+modality: tool_use
+env_key: github          # Single environment
+max_tasks: 4             # Few tasks
+max_steps: 10            # Tinker only
+model_name: Qwen/Qwen3-8B
