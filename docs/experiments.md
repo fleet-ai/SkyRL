@@ -67,7 +67,8 @@ Tasks are collected from Fleet environments with automatic verification:
 
 ---
 
-### v0.2.4
+### v0.2.4 - Run `larger data`
+<!-- ### v0.2.4
 
 **Hypothesis:** Learning rate too conservative + need more data.
 
@@ -81,7 +82,7 @@ Tasks are collected from Fleet environments with automatic verification:
 **Metrics to watch:**
 - `reward/variance_per_prompt` - Should remain > 0 (learning signal exists)
 - PPO clip ratio hit rate - If now clipping, LR is effective
-- Per-env pass@n - Especially flat envs (booking, fira, reddit, zillow)
+- Per-env pass@n - Especially flat envs (booking, fira, reddit, zillow) -->
 
 ---
 
