@@ -24,6 +24,8 @@ from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 import pprint
 
+import numpy as np
+
 
 # TODO(tgriggs): Test all backends.
 class Tracking:
@@ -76,7 +78,15 @@ class Tracking:
     def log(self, data, step, commit=False):
         for logger_name, logger_instance in self.logger.items():
             if logger_name == "wandb":
-                logger_instance.log(data=data, step=step, commit=commit)
+                # Convert list metrics to wandb.Histogram for visualization
+                wandb_data = {}
+                for k, v in data.items():
+                    if isinstance(v, list) and len(v) > 0 and all(isinstance(x, (int, float)) for x in v):
+                        # List of numbers → histogram
+                        wandb_data[k] = logger_instance.Histogram(v)
+                    else:
+                        wandb_data[k] = v
+                logger_instance.log(data=wandb_data, step=step, commit=commit)
             else:
                 logger_instance.log(data=data, step=step)
 
@@ -136,7 +146,12 @@ class _TensorboardAdapter:
 
     def log(self, data, step):
         for key in data:
-            self.writer.add_scalar(key, data[key], step)
+            value = data[key]
+            if isinstance(value, list):
+                # Log histogram distribution for list values
+                self.writer.add_histogram(key, np.array(value), step)
+            else:
+                self.writer.add_scalar(key, value, step)
 
     def finish(self):
         self.writer.close()

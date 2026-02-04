@@ -1,33 +1,27 @@
-# Fleet Task GRPO Training via SkyPilot
-# Usage: sky launch tasks/openenv-fleet-grpo.yaml --env FLEET_API_KEY=<key> --env WANDB_API_KEY=<key>
+# Fleet Task GRPO Training via SkyPilot - Qwen3-8B
+# Usage: sky launch tasks/openenv-fleet-grpo-qwen3-8b.yaml --env FLEET_API_KEY=<key> --env WANDB_API_KEY=<key>
 #
 # This task trains GRPO on Fleet-hosted environments using OpenEnv's FleetTaskEnv.
 # It loads tasks from the Fleet API and runs training with verifier-based rewards.
 # Checkpoints are automatically uploaded to S3 to prevent disk exhaustion.
+#
+# Model: Qwen/Qwen3-8B (8B parameters, instruct-tuned)
+# GPUs: B200:2 (preferred) or H100:4 (fallback)
 
-name: fleet-task-grpo
+name: fleet-task-grpo-qwen3-8b
 
 resources:
-  disk_size: 200  # Needs space for: model (~3GB), optimizer (~6GB), Ray temp (~50GB), vLLM cache, checkpoints
+  disk_size: 200  # Needs space for: model (~16GB), optimizer (~32GB), Ray temp (~50GB), vLLM cache, checkpoints
   ports: 6479
   any_of:
-    # Prefer H100
-    - accelerators: H100:1
+    # B200:2 only - H100:4 fails at vLLM init due to less VRAM per GPU
+    - accelerators: B200:2
       cloud: lambda
-    - accelerators: H100:1
+    - accelerators: B200:2
       cloud: runpod
-    - accelerators: H100:1
+    - accelerators: B200:2
       cloud: vast
-    - accelerators: H100:1
-      cloud: primeintellect
-    # Fallback to B200
-    - accelerators: B200:1
-      cloud: lambda
-    - accelerators: B200:1
-      cloud: runpod
-    - accelerators: B200:1
-      cloud: vast
-    - accelerators: B200:1
+    - accelerators: B200:2
       cloud: primeintellect
 
 num_nodes: 1
@@ -48,10 +42,14 @@ envs:
   MODALITY: "tool_use"
   # Training parameters
   MAX_TURNS: 50
-  NUM_EPOCHS: 20
+  # Context budget: Using YaRN (factor=2.0) to extend Qwen3-8B from 32K to 65K context
+  # GitHub env needs ~26K tokens for 100 tools, so 48K allows multi-turn growth
+  MAX_INPUT_LENGTH: 48000
+  MAX_GENERATE_LENGTH: 8192  # Increased from 4096 to allow thinking + tool calls
+  NUM_EPOCHS: 1
   RUN_ID: ""
   # Optional: limit number of tasks for testing
-  MAX_TASKS: ""
+  MAX_TASKS: "2"
   # AWS credentials (required for S3 dataset download, optional for checkpoint upload)
   AWS_ACCESS_KEY_ID: ""
   AWS_SECRET_ACCESS_KEY: ""
@@ -60,6 +58,7 @@ envs:
   S3_DATASET_BUCKET: "fleet-internal-datasets"
   S3_CHECKPOINT_BUCKET: "skyrl-checkpoints"
   S3_TRAJECTORY_BUCKET: "skyrl-trajectories"
+  DATA_VERSION: "v0.2"
 
 setup: |
   set -euo pipefail
@@ -114,6 +113,9 @@ run: |
   mkdir -p "$TMP_DIR"
   export TMPDIR="$TMP_DIR"
 
+  # Help PyTorch memory allocator handle fragmentation
+  export PYTORCH_ALLOC_CONF=expandable_segments:True
+
   TASKS_FILE="$HOME/data/fleet/tasks_${MODALITY}.json"
   DATA_DIR="$HOME/data/fleet/${MODALITY}"
 
@@ -149,7 +151,10 @@ run: |
     environment.env_class=fleet_task \
     environment.skyrl_gym.fleet_task.tasks_file="$TASKS_FILE" \
     trainer.algorithm.advantage_estimator="grpo" \
-    trainer.policy.model.path="Qwen/Qwen2.5-1.5B-Instruct" \
+    trainer.policy.model.path="Qwen/Qwen3-8B" \
+    ++trainer.rope_scaling.rope_type=yarn \
+    ++trainer.rope_scaling.factor=2.0 \
+    ++trainer.rope_scaling.original_max_position_embeddings=32768 \
     trainer.placement.colocate_all=true \
     trainer.strategy=fsdp2 \
     trainer.placement.policy_num_gpus_per_node=$TOTAL_GPUS \
@@ -157,18 +162,19 @@ run: |
     generator.num_inference_engines=$TOTAL_GPUS \
     generator.inference_engine_tensor_parallel_size=1 \
     trainer.epochs=${NUM_EPOCHS} \
-    trainer.eval_batch_size=4 \
-    trainer.eval_before_train=true \
-    trainer.eval_interval=5 \
+    trainer.eval_batch_size=8 \
+    trainer.eval_before_train=false \
+    trainer.eval_interval=20 \
     trainer.update_epochs_per_batch=1 \
     trainer.train_batch_size=4 \
     trainer.policy_mini_batch_size=4 \
-    trainer.micro_forward_batch_size_per_gpu=4 \
-    trainer.micro_train_batch_size_per_gpu=4 \
+    trainer.micro_forward_batch_size_per_gpu=1 \
+    trainer.micro_train_batch_size_per_gpu=1 \
     trainer.ckpt_interval=10 \
     trainer.max_prompt_length=512 \
-    generator.sampling_params.max_generate_length=2048 \
-    generator.sampling_params.temperature=0.6 \
+    generator.max_input_length=$MAX_INPUT_LENGTH \
+    generator.sampling_params.max_generate_length=$MAX_GENERATE_LENGTH \
+    generator.sampling_params.temperature=0.9 \
     generator.sampling_params.top_p=0.95 \
     generator.sampling_params.stop='["</tool_call>"]' \
     generator.eval_sampling_params.stop='["</tool_call>"]' \
@@ -189,4 +195,5 @@ run: |
     trainer.run_name="fleet_${MODALITY}_${RUN_ID:-$(head -c 4 /dev/urandom | xxd -p)}" \
     trainer.resume_mode=latest \
     trainer.ckpt_path="$HOME/ckpts/fleet_${MODALITY}" \
-    trainer.dump_data_batch=true
+    trainer.dump_data_batch=true \
+    trainer.policy.track_extra_gradient_metrics=true
