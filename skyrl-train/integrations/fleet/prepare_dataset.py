@@ -18,7 +18,6 @@ Split Strategy:
 
 v0.3.1 Changes:
     - Added MAX_ENV_TRAIN_RATIO=0.20 to prevent any single env from dominating
-    - google-maps was 46% of training data, now capped at 20%
     - Hash-based deterministic sampling for reproducibility
 
 v0.3.0 Changes:
@@ -51,7 +50,7 @@ MIN_EVAL_SAMPLES = 5
 MAX_EVAL_SAMPLES = 20
 
 # Maximum fraction of training data any single environment can have (v0.3.1)
-# Prevents dominant environments (e.g., google-maps at 46%) from skewing training
+# Prevents dominant environments from skewing training
 MAX_ENV_TRAIN_RATIO = 0.20
 
 
