@@ -46,9 +46,9 @@ HELD_OUT_ENVS = {
 # Minimum number of samples required to create an eval split for an env
 MIN_EVAL_SAMPLES = 5
 
-# Maximum number of eval samples per environment (v0.3)
-# Ensures small envs like ticketmaster get eval traces without blowing up eval set size
-MAX_EVAL_SAMPLES = 30
+# Maximum number of eval samples per environment (v0.3.1: reduced from 30 to 20)
+# Ensures small envs get eval traces without blowing up eval set size
+MAX_EVAL_SAMPLES = 20
 
 # Maximum fraction of training data any single environment can have (v0.3.1)
 # Prevents dominant environments (e.g., google-maps at 46%) from skewing training
