@@ -25,13 +25,32 @@ Tasks are collected from Fleet environments with automatic verification:
 |---------|-------|---------------|-------|
 | v0.1 | 3,603 | 0% | Missing runtime context (dates, user info) |
 | v0.2 | 3,485 | 95% | Added `CURRENT_DATE`, `LOGGED_IN_USER`, `LOGGED_IN_NAME` |
-| v0.3 | TBD | 95%+ | Larger scale dataset (planned) |
+| v0.3 | 10,175 | 95%+ | 3x scale: added google-maps, fostgres, amazon, carlisle, wallst |
 
-**S3 path**: `s3://fleet-internal-datasets/v0.2/openenv/all_tool_use.json`
+### 2.3 Train/Eval Split
 
-### 2.3 Train/Eval Split (v0.2.3)
+**v0.3** (10% eval ratio, capped at ~30 samples per environment)
 
-10% eval ratio, capped at 30 samples per environment.
+| Environment | Train | Eval | Total |
+|-------------|-------|------|-------|
+| amazon | 16 | 2 | 18 |
+| booking | 1,313 | 23 | 1,336 |
+| carlisle | 36 | 2 | 38 |
+| dropbox | 3 | 0 | 3 |
+| fira | 60 | 6 | 66 |
+| fostgres | 923 | 26 | 949 |
+| github | 2,048 | 33 | 2,081 |
+| google-maps | 4,695 | 32 | 4,727 |
+| hubspot | 16 | 3 | 19 |
+| outlook | 36 | 3 | 39 |
+| reddit | 432 | 23 | 455 |
+| ticketmaster | 229 | 28 | 257 |
+| wallst | 65 | 4 | 69 |
+| zillow | 109 | 9 | 118 |
+| **TOTAL** | **9,981** | **194** | **10,175** |
+
+<details>
+<summary>v0.2 split (previous)</summary>
 
 | Environment | Train | Eval | Total |
 |-------------|-------|------|-------|
@@ -44,6 +63,8 @@ Tasks are collected from Fleet environments with automatic verification:
 | ticketmaster | 200 | 22 | 222 |
 | zillow | 30 | 3 | 33 |
 | **TOTAL** | **3,365** | **112** | **3,477** |
+
+</details>
 
 ## 3. Method
 
