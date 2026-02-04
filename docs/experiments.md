@@ -33,21 +33,21 @@ Tasks are collected from Fleet environments with automatic verification:
 
 | Environment | Train | Eval | Total |
 |-------------|-------|------|-------|
-| amazon | 16 | 2 | 18 |
+| amazon | 18 | 0 | 18 |
 | booking | 1,313 | 23 | 1,336 |
-| carlisle | 36 | 2 | 38 |
+| carlisle | 38 | 0 | 38 |
 | dropbox | 3 | 0 | 3 |
 | fira | 60 | 6 | 66 |
 | fostgres | 923 | 26 | 949 |
 | github | 2,048 | 33 | 2,081 |
 | google-maps | 4,695 | 32 | 4,727 |
-| hubspot | 16 | 3 | 19 |
-| outlook | 36 | 3 | 39 |
+| hubspot | 19 | 0 | 19 |
+| outlook | 39 | 0 | 39 |
 | reddit | 432 | 23 | 455 |
 | ticketmaster | 229 | 28 | 257 |
 | wallst | 65 | 4 | 69 |
 | zillow | 109 | 9 | 118 |
-| **TOTAL** | **9,981** | **194** | **10,175** |
+| **TOTAL** | **9,991** | **184** | **10,175** |
 
 <details>
 <summary>v0.2 split (previous)</summary>
