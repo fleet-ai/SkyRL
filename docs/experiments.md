@@ -67,7 +67,7 @@ Tasks are collected from Fleet environments with automatic verification:
 
 ---
 
-### v0.2.4 (Planned)
+### v0.2.4
 
 **Hypothesis:** Learning rate too conservative + need more data.
 
