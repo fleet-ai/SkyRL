@@ -69,11 +69,12 @@ Tasks are collected from Fleet environments with automatic verification:
 
 ### v0.2.4 (Planned)
 
-**Hypothesis:** Learning rate too conservative, no PPO clipping observed.
+**Hypothesis:** Learning rate too conservative + need more data.
 
 **Changes:**
-| Parameter | v0.2.3 | v0.2.4 | Rationale |
-|-----------|--------|--------|-----------|
+| Change | v0.2.3 | v0.2.4 | Rationale |
+|--------|--------|--------|-----------|
+| Dataset | v0.2 (~3.4K tasks) | v0.3 (larger) | Scale up training data |
 | `learning_rate` | 1e-6 | 5e-6 | 5x increase - no PPO clip hit suggests updates too small |
 | `kl_coef` | 0.01 | 0.01 | Keep (isolate LR effect first) |
 
