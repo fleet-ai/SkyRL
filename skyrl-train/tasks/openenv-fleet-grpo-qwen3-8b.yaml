@@ -167,7 +167,7 @@ run: |
     trainer.epochs=${NUM_EPOCHS} \
     trainer.eval_batch_size=4 \
     trainer.eval_before_train=true \
-    trainer.eval_interval=10 \
+    trainer.eval_interval=50 \
     trainer.update_epochs_per_batch=1 \
     trainer.train_batch_size=4 \
     trainer.policy_mini_batch_size=4 \
@@ -191,7 +191,7 @@ run: |
     generator.batched=false \
     generator.use_conversation_multi_turn=true \
     generator.n_samples_per_prompt=4 \
-    generator.eval_n_samples_per_prompt=3 \
+    generator.eval_n_samples_per_prompt=1 \
     generator.gpu_memory_utilization=0.7 \
     trainer.logger="$LOGGER" \
     trainer.project_name="fleet-task-grpo" \

@@ -49,6 +49,9 @@ MIN_EVAL_SAMPLES = 5
 # Ensures small envs get eval traces without blowing up eval set size
 MAX_EVAL_SAMPLES = 20
 
+# Maximum total eval prompts (v0.3.2: cap total eval set size for faster evals)
+MAX_EVAL_PROMPTS = 50
+
 # Maximum fraction of training data any single environment can have (v0.3.1)
 # Prevents dominant environments from skewing training
 MAX_ENV_TRAIN_RATIO = 0.20
@@ -143,6 +146,7 @@ def prepare_fleet_dataset(
     env_filter: Optional[str] = None,
     max_tasks: Optional[int] = None,
     max_env_ratio: float = MAX_ENV_TRAIN_RATIO,  # v0.3.1: cap dominant environments
+    max_eval_prompts: int = MAX_EVAL_PROMPTS,  # v0.3.2: cap total eval set size
 ):
     """
     Convert Fleet tasks JSON to SkyRL parquet dataset.
@@ -281,6 +285,27 @@ def prepare_fleet_dataset(
 
     print(f"\nTotal: {len(train_records)} train, {len(eval_records)} eval")
 
+    # Apply total eval cap (v0.3.2) - sample stratified by environment
+    if max_eval_prompts and len(eval_records) > max_eval_prompts:
+        # Group by environment for stratified sampling
+        eval_by_env: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for record in eval_records:
+            env_key = record.get("data_source", "unknown")
+            eval_by_env[env_key].append(record)
+
+        # Calculate per-env quota (proportional to original size)
+        total_eval = len(eval_records)
+        capped_eval_records = []
+        for env_key, records in eval_by_env.items():
+            quota = max(1, int(len(records) / total_eval * max_eval_prompts))
+            # Sort by hash for deterministic selection
+            records_sorted = sorted(records, key=lambda r: hash_to_float(r.get("task_key", "")))
+            capped_eval_records.extend(records_sorted[:quota])
+
+        print(f"\n=== Eval Set Cap ({max_eval_prompts} max prompts) ===")
+        print(f"  {len(eval_records)} -> {len(capped_eval_records)} eval prompts")
+        eval_records = capped_eval_records
+
     # Apply per-environment cap to training data (v0.3.1)
     if max_env_ratio < 1.0 and train_records:
         train_records, cap_stats = cap_training_distribution(train_records, max_env_ratio)
@@ -399,6 +424,12 @@ def main():
         default=MAX_ENV_TRAIN_RATIO,
         help=f"Maximum fraction of training data per environment (default: {MAX_ENV_TRAIN_RATIO})",
     )
+    parser.add_argument(
+        "--max-eval-prompts",
+        type=int,
+        default=MAX_EVAL_PROMPTS,
+        help=f"Maximum total eval prompts (default: {MAX_EVAL_PROMPTS})",
+    )
 
     args = parser.parse_args()
 
@@ -413,6 +444,7 @@ def main():
         env_filter=args.env_filter,
         max_tasks=args.max_tasks,
         max_env_ratio=args.max_env_ratio,
+        max_eval_prompts=args.max_eval_prompts,
     )
 
 
