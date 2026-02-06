@@ -778,21 +778,38 @@ class PolicyWorkerBase(Worker):
         """
         Compute update diversity as aggregated gradient histogram distribution.
 
-        Aggregates all mean gradients into a single histogram and returns the
+        Only includes gradients where |mean_grad| > 5% of |param| to filter out noise.
+        Aggregates filtered mean gradients into a single histogram and returns the
         normalized probability distribution. This can be used with cosine
         similarity to measure gradient pattern differences across environments.
         """
         if self._grad_stats["count"] == 0:
             return []
 
-        # Collect all mean gradients into a single tensor (already local shards on CPU)
+        # Collect significant mean gradients (>5% of param magnitude) into a single tensor
         all_grads = []
-        for name in self._grad_stats["mean"]:
-            g = self._grad_stats["mean"][name]
-            all_grads.append(g.flatten())
+        for name, param in self.model.named_parameters():
+            if name not in self._grad_stats["mean"]:
+                continue
+
+            mean_grad = self._grad_stats["mean"][name]
+            # Use local shard instead of full_tensor to save memory
+            param_data = param.data
+            if hasattr(param_data, "_local_tensor"):
+                param_data = param_data._local_tensor
+            param_magnitude = torch.abs(param_data.cpu())
+
+            # Only include gradients where |mean_grad| > 5% of |param|
+            threshold = 0.05 * param_magnitude
+            mask = torch.abs(mean_grad) > threshold
+            significant_grads = mean_grad[mask]
+            
+            if significant_grads.numel() > 0:
+                all_grads.append(significant_grads.flatten())
 
         if len(all_grads) == 0:
-            return []
+            return [0.0] * 10  # No significant gradients
+            
         all_grads = torch.cat(all_grads)
         hist = torch.histc(all_grads, bins=10)
         hist_sum = hist.sum()
