@@ -1266,13 +1266,16 @@ def test_hybrid_env_sampler_iteration_exhaustion():
 
 def test_hybrid_env_sampler_dataloader_integration():
     """
-    Test that HybridEnvSampler works correctly with DataLoader using batch_sampler.
+    Test that HybridEnvSampler works correctly with standard DataLoader using batch_sampler.
 
     This test catches the bug where using `sampler=` instead of `batch_sampler=`
     caused the collate_fn to receive indices instead of dataset items, resulting in:
         ValueError: not enough values to unpack (expected 4, got 1)
+
+    Note: We use standard torch DataLoader, not StatefulDataLoader, because
+    StatefulDataLoader doesn't properly support batch_sampler (ignores it).
     """
-    from torch.utils.data import DataLoader
+    from torch.utils.data import DataLoader  # Standard DataLoader, NOT StatefulDataLoader
 
     dataset = MockPromptDataset(
         {
@@ -1355,3 +1358,34 @@ def test_hybrid_env_sampler_wrong_usage_fails():
     # This will fail because collate_fn receives indices, not dataset items
     with pytest.raises((ValueError, TypeError)):
         next(iter(wrong_dataloader))
+
+
+def test_stateful_dataloader_batch_sampler_bug():
+    """
+    Demonstrate that StatefulDataLoader ignores batch_sampler.
+
+    This documents why we use standard DataLoader instead of StatefulDataLoader
+    when hybrid sampling is enabled - StatefulDataLoader doesn't properly
+    support batch_sampler and falls back to index-based fetching.
+    """
+    from torchdata.stateful_dataloader import StatefulDataLoader
+
+    dataset = MockPromptDataset({"env_a": 10, "env_b": 10})
+
+    sampler = HybridEnvSampler(
+        dataset=dataset,
+        batch_size=6,
+        min_samples_per_env=1,
+        generator=torch.Generator().manual_seed(42),
+    )
+
+    # StatefulDataLoader ignores batch_sampler and uses regular fetching
+    # This causes: TypeError: 'int' object is not iterable
+    stateful_dl = StatefulDataLoader(
+        dataset,
+        batch_sampler=sampler,
+        collate_fn=dataset.collate_fn,
+    )
+
+    with pytest.raises(TypeError, match="'int' object is not iterable"):
+        next(iter(stateful_dl))
