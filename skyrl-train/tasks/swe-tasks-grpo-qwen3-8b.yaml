@@ -6,7 +6,7 @@
 # The agent learns to fix bugs by interacting with the codebase in a container.
 #
 # Model: Qwen/Qwen3-8B (8B parameters)
-# GPUs: H100:8
+# GPUs: Tries H100:4 -> H100:1 -> A100-80GB:4 -> A100-80GB:1 on Lambda
 
 name: swe-tasks-grpo-qwen3-8b
 
@@ -14,20 +14,16 @@ resources:
   disk_size: 200
   ports: 6479
   any_of:
-    - accelerators: H100:8
+    - accelerators: H200-SXM:2
       cloud: lambda
-    - accelerators: H100:8
+    - accelerators: H200-SXM:2
       cloud: runpod
-    - accelerators: H100:8
-      cloud: vast
-    - accelerators: A100-80GB:8
-      cloud: lambda
 
 num_nodes: 1
 
 workdir:
   url: https://github.com/fleet-ai/SkyRL.git
-  ref: main
+  ref: swe-task-generator-integration
 
 envs:
   WANDB_API_KEY: ""
@@ -55,7 +51,7 @@ setup: |
 
   # Prepare dataset from task instances
   uv pip install pyarrow datasets
-  uv run --isolated integrations/swe_tasks/prepare_dataset.py \
+  python integrations/swe_tasks/prepare_dataset.py \
     --tasks-dir $HOME/swe-task-generator/tasks \
     --output-dir $HOME/data/swe_tasks
 
@@ -97,6 +93,16 @@ run: |
   done
 
   TOTAL_GPUS=$SKYPILOT_NUM_GPUS_PER_NODE
+  echo "Running with $TOTAL_GPUS GPU(s)"
+
+  # Dynamically set inference engine config based on available GPUs
+  if [ "$TOTAL_GPUS" -ge 4 ]; then
+    NUM_INFERENCE_ENGINES=2
+    TP_SIZE=2
+  else
+    NUM_INFERENCE_ENGINES=1
+    TP_SIZE=1
+  fi
 
   # Run GRPO training
   uv run --isolated --extra vllm --extra miniswe \
@@ -109,8 +115,8 @@ run: |
     trainer.strategy=fsdp2 \
     trainer.placement.policy_num_gpus_per_node=$TOTAL_GPUS \
     trainer.placement.ref_num_gpus_per_node=$TOTAL_GPUS \
-    generator.num_inference_engines=4 \
-    generator.inference_engine_tensor_parallel_size=2 \
+    generator.num_inference_engines=$NUM_INFERENCE_ENGINES \
+    generator.inference_engine_tensor_parallel_size=$TP_SIZE \
     trainer.epochs=${NUM_EPOCHS} \
     trainer.eval_batch_size=2 \
     trainer.eval_before_train=true \
