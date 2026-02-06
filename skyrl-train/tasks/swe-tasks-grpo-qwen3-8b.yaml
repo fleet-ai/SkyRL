@@ -95,14 +95,10 @@ run: |
   TOTAL_GPUS=$SKYPILOT_NUM_GPUS_PER_NODE
   echo "Running with $TOTAL_GPUS GPU(s)"
 
-  # Dynamically set inference engine config based on available GPUs
-  if [ "$TOTAL_GPUS" -ge 4 ]; then
-    NUM_INFERENCE_ENGINES=2
-    TP_SIZE=2
-  else
-    NUM_INFERENCE_ENGINES=1
-    TP_SIZE=1
-  fi
+  # When colocating, num_inference_engines * TP must equal TOTAL_GPUS
+  # Use TP=1 and engines=TOTAL_GPUS for maximum throughput
+  NUM_INFERENCE_ENGINES=$TOTAL_GPUS
+  TP_SIZE=1
 
   # Run GRPO training
   uv run --isolated --extra vllm --extra miniswe \
