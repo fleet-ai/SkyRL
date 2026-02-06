@@ -763,23 +763,24 @@ class HybridEnvSampler(torch.utils.data.Sampler):
         env_positions = {env: 0 for env in self.env_classes}
 
         # Calculate number of complete batches we can form
-        # Each batch needs min_samples_per_env from each env
+        # Each batch consumes batch_size samples total. We need at least min_samples_per_env from each env.
+        # The limiting factor is the smallest env - it determines how many batches we can form.
+        # We use a conservative estimate: total_samples / batch_size, but limited by smallest env.
         min_batches_per_env = [len(indices) // self.min_samples_per_env for indices in self.env_to_indices.values()]
         num_batches = min(min_batches_per_env)
 
-        if self.drop_last:
-            # Only yield complete batches
-            pass
-        else:
-            # Could yield partial batches, but for simplicity we'll still use complete batches
-            pass
+        # Further limit by total available samples / batch_size to avoid over-consuming
+        total_samples = sum(len(indices) for indices in self.env_to_indices.values())
+        num_batches = min(num_batches, total_samples // self.batch_size)
 
         for batch_idx in range(num_batches):
             batch_indices = []
 
             # Step 1: Add minimum samples from each environment
             for env in self.env_classes:
-                for _ in range(self.min_samples_per_env):
+                available = len(env_indices_shuffled[env]) - env_positions[env]
+                samples_to_take = min(self.min_samples_per_env, available)
+                for _ in range(samples_to_take):
                     idx = env_indices_shuffled[env][env_positions[env]]
                     batch_indices.append(idx)
                     env_positions[env] += 1
@@ -835,6 +836,9 @@ class HybridEnvSampler(torch.utils.data.Sampler):
         # Number of samples yielded per epoch
         min_batches_per_env = [len(indices) // self.min_samples_per_env for indices in self.env_to_indices.values()]
         num_batches = min(min_batches_per_env)
+        # Also limit by total samples / batch_size
+        total_samples = sum(len(indices) for indices in self.env_to_indices.values())
+        num_batches = min(num_batches, total_samples // self.batch_size)
         return num_batches * self.batch_size
 
 
@@ -859,7 +863,14 @@ def build_dataloader(
     seeded_generator.manual_seed(cfg.trainer.seed)
 
     # Check if we should use hybrid env sampling for training
-    use_hybrid_sampling = is_train and not is_fully_async and getattr(cfg.trainer, "use_hybrid_env_sampling", False)
+    # Requires dataset to have dataframe and env_class_key attributes (like PromptDataset)
+    use_hybrid_sampling = (
+        is_train
+        and not is_fully_async
+        and getattr(cfg.trainer, "use_hybrid_env_sampling", False)
+        and hasattr(dataset, "dataframe")
+        and hasattr(dataset, "env_class_key")
+    )
 
     if use_hybrid_sampling:
         min_samples_per_env = getattr(cfg.trainer, "min_samples_per_env", 1)
