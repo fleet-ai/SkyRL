@@ -81,6 +81,18 @@ jobs:
           pip install prime
           prime config set-api-key "${{ secrets.PRIME_INTELLECT_API_KEY }}"
 
+      - name: Generate Fresh SSH Key for SkyPilot
+        run: |
+          # Generate a fresh SSH keypair for SkyPilot
+          # This avoids RunPod's 65500 character limit on public keys
+          # which can happen if ~/.ssh/authorized_keys has many accumulated keys
+          mkdir -p ~/.ssh
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/sky-key -N "" -C "skypilot-gha"
+          chmod 600 ~/.ssh/sky-key
+          chmod 644 ~/.ssh/sky-key.pub
+          echo "Generated fresh SSH keypair for SkyPilot"
+          wc -c ~/.ssh/sky-key.pub
+
       - name: Verify Cloud Credentials
         run: sky check lambda runpod vast primeintellect
 
