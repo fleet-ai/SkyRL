@@ -45,6 +45,32 @@ The `learnings/` folder contains documented knowledge about SkyRL internals:
    - Use DAPO overlong filtering: truncate sequences > `max_sequence_length` and zero out loss mask
    - Match metrics naming: `pass_at_n`, per-environment metrics, etc.
 
+## Experiment Logging Format
+
+When logging experiment results in `~/repos/fleet-training/experiments.md`, always include:
+
+1. **Results Table** - Step 0 and best step metrics:
+   ```
+   | Environment | Step 0 pass@3 | Step N pass@3 | Delta |
+   |-------------|---------------|---------------|-------|
+   | booking     | X.X%          | X.X%          | +X.X% |
+   | ...         |               |               |       |
+   | **OVERALL** | **X.X%**      | **X.X%**      | **+X.X%** |
+   ```
+
+2. **Environment Metrics** - Per-environment behavior:
+   ```
+   | Environment | Avg Tools | Tools/Turn | Avg Turns | Episodes |
+   |-------------|-----------|------------|-----------|----------|
+   | booking     | X.X       | X.XX       | X.X       | N        |
+   ```
+
+3. **Links** - Always include GitHub Actions run and WandB run links
+
+4. **Versioning** - Use `v{dataset}.{iteration}` format (e.g., v0.3.2 = 2nd iteration on v0.3 dataset)
+
+5. **Tag PRs** - Reference all relevant PRs in each experiment section
+
 ## Project Context
 
 - This is SkyRL, a reinforcement learning training framework
