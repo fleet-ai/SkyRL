@@ -1161,7 +1161,6 @@ def test_hybrid_env_sampler_proportional_fill():
     # Collect multiple batches to get statistical average
     # Sampler yields batches, so flatten them
     all_batches = list(sampler)
-    num_batches = len(all_batches)
 
     total_large = 0
     total_small = 0
