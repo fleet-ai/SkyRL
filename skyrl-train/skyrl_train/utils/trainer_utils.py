@@ -831,16 +831,17 @@ class HybridEnvSampler(torch.utils.data.Sampler):
                 perm = torch.randperm(len(batch_indices)).tolist()
             batch_indices = [batch_indices[i] for i in perm]
 
-            yield from batch_indices
+            # Yield the complete batch (for use with batch_sampler=)
+            yield batch_indices
 
     def __len__(self):
-        # Number of samples yielded per epoch
+        # Number of batches per epoch (for batch_sampler, __len__ returns batch count)
         min_batches_per_env = [len(indices) // self.min_samples_per_env for indices in self.env_to_indices.values()]
         num_batches = min(min_batches_per_env)
         # Also limit by total samples / batch_size
         total_samples = sum(len(indices) for indices in self.env_to_indices.values())
         num_batches = min(num_batches, total_samples // self.batch_size)
-        return num_batches * self.batch_size
+        return num_batches
 
 
 def build_dataloader(
