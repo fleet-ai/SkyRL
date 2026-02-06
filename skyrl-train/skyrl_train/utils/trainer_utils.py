@@ -18,6 +18,7 @@ from pathlib import Path
 from skyrl_train.utils.io import io
 from skyrl_train.dataset import PromptDataset
 from torchdata.stateful_dataloader import StatefulDataLoader
+from torch.utils.data import DataLoader
 
 BasicType = Union[int, float, str, bool, type(None)]
 
@@ -881,7 +882,9 @@ def build_dataloader(
             generator=seeded_generator,
             drop_last=True,
         )
-        dataloader = StatefulDataLoader(
+        # Use standard DataLoader instead of StatefulDataLoader for hybrid sampling
+        # StatefulDataLoader doesn't properly support batch_sampler (ignores it)
+        dataloader = DataLoader(
             dataset,
             batch_sampler=sampler,  # HybridEnvSampler yields batches of indices
             collate_fn=dataset.collate_fn,
