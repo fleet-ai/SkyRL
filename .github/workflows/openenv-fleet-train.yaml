@@ -93,6 +93,20 @@ jobs:
           echo "Generated fresh SSH keypair for SkyPilot"
           wc -c ~/.ssh/sky-key.pub
 
+      - name: Start SkyPilot API Server
+        run: |
+          # Explicitly start the API server to avoid flaky auto-start race condition
+          sky api start
+          # Wait for server to be healthy
+          for i in {1..10}; do
+            if curl -s http://127.0.0.1:46580/api/health | grep -q healthy; then
+              echo "SkyPilot API server is healthy"
+              break
+            fi
+            echo "Waiting for API server... (attempt $i)"
+            sleep 2
+          done
+
       - name: Verify Cloud Credentials
         run: sky check lambda runpod vast primeintellect
 
