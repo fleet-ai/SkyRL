@@ -148,14 +148,14 @@ class SWETasksGenerator(SkyRLGymGenerator):
     ):
         super().__init__(generator_cfg, skyrl_gym_cfg, inference_engine_client, tokenizer, model_name)
 
-        self.http_server_inference_engine_client_host = generator_cfg.get(
-            "http_server_inference_engine_client_host", "127.0.0.1"
+        self.http_endpoint_host = generator_cfg.get(
+            "http_endpoint_host", "127.0.0.1"
         )
-        self.http_server_inference_engine_client_port = generator_cfg.get(
-            "http_server_inference_engine_client_port", 8000
+        self.http_endpoint_port = generator_cfg.get(
+            "http_endpoint_port", 8001
         )
         self.base_url = (
-            f"http://{self.http_server_inference_engine_client_host}:{self.http_server_inference_engine_client_port}"
+            f"http://{self.http_endpoint_host}:{self.http_endpoint_port}"
         )
         self.generator_cfg = generator_cfg
         self.tokenizer = tokenizer
