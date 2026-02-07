@@ -67,7 +67,11 @@ def init_and_run(
     - image_name from task.json (Docker Hub)
     - eval_script from task.json
     """
+    import os
     from loguru import logger
+
+    # Disable minisweagent cost tracking for local models not in litellm pricing DB
+    os.environ["MSWEA_COST_TRACKING"] = "ignore_errors"
 
     model_config = sweagent_config.get("model", {})
     model_config.setdefault("model_kwargs", {}).update(sampling_params)
