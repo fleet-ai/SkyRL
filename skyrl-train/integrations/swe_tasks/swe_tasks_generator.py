@@ -58,6 +58,7 @@ def init_and_run(
     trajectory_id: TrajectoryID,
     global_step: int,
     training_phase: TrainingPhase,
+    vllm_base_url: str = "http://127.0.0.1:8000",
 ):
     """
     Ray remote task: initialize environment and run agent trajectory.
@@ -70,6 +71,9 @@ def init_and_run(
 
     model_config = sweagent_config.get("model", {})
     model_config.setdefault("model_kwargs", {}).update(sampling_params)
+    # Point litellm to the local vLLM inference server
+    model_config["model_kwargs"]["api_base"] = f"{vllm_base_url}/v1"
+    model_config["model_kwargs"]["api_key"] = "dummy"
     model = get_model(litellm_model_name, model_config)
 
     agent = None
@@ -193,6 +197,7 @@ class SWETasksGenerator(SkyRLGymGenerator):
             trajectory_id,
             batch_metadata.global_step,
             batch_metadata.training_phase,
+            vllm_base_url=self.base_url,
         )
 
         if not len(messages):
@@ -210,11 +215,15 @@ class SWETasksGenerator(SkyRLGymGenerator):
         initial_prompt_length = len(initial_input_ids)
 
         # Remove trailing user messages (final git diff capture)
+        if not response_messages:
+            # No response beyond system+user — agent produced nothing
+            return None, None, None, None, None, None
         last_idx = len(response_messages) - 1
-        while response_messages[last_idx]["role"] == "user":
+        while last_idx >= 0 and response_messages[last_idx]["role"] == "user":
             last_idx -= 1
         if last_idx < 0:
-            raise ValueError("Found no assistant messages. Check environment configuration.")
+            # Only user messages, no assistant messages at all
+            return None, None, None, None, None, None
         response_messages = response_messages[: last_idx + 1]
 
         response_ids, loss_mask, _ = get_response_ids_and_loss_mask_from_messages(
