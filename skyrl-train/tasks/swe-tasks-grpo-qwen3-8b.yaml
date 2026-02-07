@@ -76,6 +76,7 @@ run: |
   mkdir -p "$TMP_DIR"
   export TMPDIR="$TMP_DIR"
   export PYTORCH_ALLOC_CONF=expandable_segments:True
+  export MSWEA_COST_TRACKING=ignore_errors  # Qwen3-8B isn't in litellm's pricing DB
 
   DATA_DIR="$HOME/data/swe_tasks"
   CKPT_PATH="$HOME/ckpts/swe_tasks"
