@@ -137,7 +137,7 @@ run: |
     generator.max_input_length=$MAX_INPUT_LENGTH \
     generator.max_turns=$MAX_TURNS \
     trainer.policy.optimizer_config.lr=1.0e-6 \
-    trainer.algorithm.use_kl_loss=true \
+    trainer.algorithm.use_kl_loss=false \
     generator.backend=$INFERENCE_BACKEND \
     generator.run_engines_locally=True \
     generator.enable_http_endpoint=True \
