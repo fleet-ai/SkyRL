@@ -6,18 +6,21 @@
 # The agent learns to fix bugs by interacting with the codebase in a container.
 #
 # Model: Qwen/Qwen3-8B (8B parameters)
-# GPUs: Tries H100:4 -> H100:1 -> A100-80GB:4 -> A100-80GB:1 on Lambda
+# GPUs: Lambda only (bare metal with Docker pre-installed)
 
 name: swe-tasks-grpo-qwen3-8b
 
 resources:
   disk_size: 200
   ports: 6479
+  cloud: lambda
   any_of:
-    - accelerators: H200-SXM:2
-      cloud: lambda
-    - accelerators: H200-SXM:2
-      cloud: runpod
+    - accelerators: B200:2
+    - accelerators: H100:2
+    - accelerators: A100:2
+    - accelerators: H100:1
+    - accelerators: A100:1
+    - accelerators: A10:1
 
 num_nodes: 1
 
