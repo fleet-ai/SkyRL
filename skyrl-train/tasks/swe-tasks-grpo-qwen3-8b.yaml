@@ -17,10 +17,6 @@ resources:
   any_of:
     - accelerators: B200:2
     - accelerators: H100:2
-    - accelerators: A100:2
-    - accelerators: H100:1
-    - accelerators: A100:1
-    - accelerators: A10:1
 
 num_nodes: 1
 
@@ -41,6 +37,14 @@ envs:
 
 setup: |
   set -euo pipefail
+
+  # Ensure current user can access Docker daemon
+  if ! docker ps >/dev/null 2>&1; then
+    sudo usermod -aG docker $USER
+    sudo chmod 666 /var/run/docker.sock
+  fi
+  docker ps  # Verify Docker access
+
   cd skyrl-train
 
   uv venv --python 3.12 --seed
