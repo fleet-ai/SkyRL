@@ -135,3 +135,4 @@ model:
   model_name: ""
   model_kwargs:
     drop_params: true
+  cost_tracking: ignore_errors
