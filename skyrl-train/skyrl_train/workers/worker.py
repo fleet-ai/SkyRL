@@ -858,14 +858,6 @@ class PolicyWorkerBase(Worker):
 
         return sum(ranks) / len(ranks)
 
-    def reset_gradient_stats(self):
-        """Reset gradient statistics for next accumulation period."""
-        self._grad_stats = {
-            "mean": {},
-            "var_numerator": {},
-            "count": 0,
-        }
-
     def forward_backward(self, data: TrainingInputBatch) -> Dict[str, float]:
         """
         Perform forward and backward passes for a batch, handling micro-batching internally.
