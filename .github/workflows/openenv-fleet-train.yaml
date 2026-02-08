@@ -233,46 +233,25 @@ jobs:
               ]
             }
 
-      - name: Stream Training Logs
+      - name: Detach and Exit
         id: stream
         run: |
           CLUSTER_NAME="${{ steps.cluster.outputs.name }}"
 
-          echo "Streaming logs for cluster $CLUSTER_NAME..."
-          echo "This step will run until training completes or fails."
+          echo "Training cluster launched: $CLUSTER_NAME"
+          echo "Training is running in detached mode on SkyPilot."
           echo ""
-
-          # Stream logs until job completes (this blocks)
-          # Save to file to check for success pattern
-          sky logs --follow "$CLUSTER_NAME" 2>&1 | tee /tmp/training_logs.txt || true
-
-          # Get final cluster status
+          echo "Monitor progress:"
+          echo "  - WandB: https://wandb.ai/thefleet/fleet-task-grpo"
+          echo "  - Logs: sky logs $CLUSTER_NAME"
+          echo "  - Status: sky status"
           echo ""
-          echo "=== Final Cluster Status ==="
-          sky status "$CLUSTER_NAME" || true
+          echo "To terminate: sky down $CLUSTER_NAME -y"
+          echo ""
+          echo "NOTE: GHA job will exit now. Training continues on GPU cluster."
+          echo "cluster_status=LAUNCHED" >> $GITHUB_OUTPUT
 
-          # Check if job succeeded by looking for SkyPilot success pattern
-          if grep -q "Job finished (status: SUCCEEDED)" /tmp/training_logs.txt 2>/dev/null; then
-            echo "Job completed successfully"
-            JOB_SUCCEEDED=true
-          else
-            echo "Job did not complete successfully"
-            JOB_SUCCEEDED=false
-          fi
-
-          # Always terminate cluster to save costs
-          echo "Terminating cluster..."
-          sky down "$CLUSTER_NAME" -y || true
-
-          if [ "$JOB_SUCCEEDED" == "true" ]; then
-            echo "cluster_status=COMPLETED" >> $GITHUB_OUTPUT
-            exit 0
-          else
-            echo "cluster_status=FAILED" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-
-      - name: Notify Slack - Training Completed
+      - name: Notify Slack - Cluster Launched
         if: success() && steps.slack_start.outputs.ts
         uses: slackapi/slack-github-action@v2.0.0
         with:
@@ -282,29 +261,27 @@ jobs:
             {
               "channel": "#fleet-training-runs",
               "thread_ts": "${{ steps.slack_start.outputs.ts }}",
-              "text": "✅ Training Completed",
+              "text": "🖥️ GPU Cluster Launched - Training Running",
               "blocks": [
                 {
                   "type": "header",
-                  "text": { "type": "plain_text", "text": "✅ Training Completed" }
+                  "text": { "type": "plain_text", "text": "🖥️ GPU Cluster Launched" }
                 },
                 {
                   "type": "section",
                   "fields": [
-                    { "type": "mrkdwn", "text": "*Run:*\n`${{ steps.cluster.outputs.name }}`" },
-                    { "type": "mrkdwn", "text": "*Backend:*\n`SkyRL`" },
-                    { "type": "mrkdwn", "text": "*Task:*\n`${{ inputs.task_name }}`" },
-                    { "type": "mrkdwn", "text": "*Status:*\n`${{ steps.stream.outputs.cluster_status }}`" }
+                    { "type": "mrkdwn", "text": "*Cluster:*\n`${{ steps.cluster.outputs.name }}`" },
+                    { "type": "mrkdwn", "text": "*Status:*\n`RUNNING`" }
                   ]
                 },
                 {
                   "type": "section",
-                  "text": { "type": "mrkdwn", "text": "*WandB Run:* `${{ steps.cluster.outputs.wandb_run_name }}`\n*Dashboard:* <https://wandb.ai/thefleet/fleet-task-grpo|View Project>" }
+                  "text": { "type": "mrkdwn", "text": "*WandB:* <https://wandb.ai/thefleet/fleet-task-grpo|Monitor Progress>\n*Logs:* `sky logs ${{ steps.cluster.outputs.name }}`\n*Stop:* `sky down ${{ steps.cluster.outputs.name }} -y`" }
                 },
                 {
                   "type": "context",
                   "elements": [
-                    { "type": "mrkdwn", "text": "Triggered by: ${{ github.actor }} | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow>" }
+                    { "type": "mrkdwn", "text": "Training continues on GPU. GHA job exits to avoid 6h limit." }
                   ]
                 }
               ]
