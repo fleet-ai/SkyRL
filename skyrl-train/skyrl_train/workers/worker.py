@@ -659,41 +659,70 @@ class PolicyWorkerBase(Worker):
         self._micro_batches_accumulated = 0
 
         # Gradient statistics for cross-step metrics (SNR, megabytes edited, update diversity)
+        # Welford stats track NORMALIZED gradients (unit global norm) for directional metrics.
+        # Raw sum tracks unnormalized gradients for megabytes_edited.
         self._grad_stats = {
-            "mean": {},  # Dict[param_name, Tensor] - running mean per param
-            "var_numerator": {},  # Dict[param_name, Tensor] - running M2 for variance.
-            "count": 0,  # int - number of steps accumulated
+            "mean": {},  # Dict[param_name, Tensor] - running mean of normalized grads
+            "var_numerator": {},  # Dict[param_name, Tensor] - running M2 for variance of normalized grads
+            "raw_sum": {},  # Dict[param_name, Tensor] - cumulative sum of raw (unnormalized) grads
+            "count": 0,  # int - number of steps accumulated (skips near-zero grad steps)
         }
         return
 
     def _accumulate_gradient_stats(self):
-        """Accumulate gradient statistics for cross-step metrics (SNR, megabytes edited, update diversity)."""
-        self._grad_stats["count"] += 1
-        n = self._grad_stats["count"]
+        """Accumulate gradient statistics for cross-step metrics.
 
+        Normalizes gradients to unit global norm before Welford accumulation so that
+        SNR, update_diversity, and effective_rank measure *directional* consistency
+        independent of gradient magnitude.  Steps with near-zero grad_norm are skipped
+        (they carry no directional information and would contaminate the statistics).
+
+        A separate raw (unnormalized) cumulative sum is maintained for megabytes_edited,
+        which needs magnitude information.
+        """
+        import math
+
+        # --- First pass: collect grads on CPU and compute local shard norm ---
+        grads: dict[str, torch.Tensor] = {}
+        total_norm_sq = 0.0
         for name, param in self.model.named_parameters():
             if param.grad is None:
                 continue
-            # Use local shard instead of full_tensor to save memory
             grad = param.grad.detach()
             if hasattr(grad, "_local_tensor"):
                 grad = grad._local_tensor
-            # Move to CPU to save GPU memory
             grad = grad.cpu()
+            grads[name] = grad
+            total_norm_sq += grad.norm().item() ** 2
 
-            # Initialize on first step
+        global_norm = math.sqrt(total_norm_sq)
+
+        # --- Always accumulate raw sum (unnormalized) for megabytes_edited ---
+        for name, grad in grads.items():
+            if name not in self._grad_stats["raw_sum"]:
+                self._grad_stats["raw_sum"][name] = torch.zeros_like(grad)
+            self._grad_stats["raw_sum"][name] += grad
+
+        # --- Skip Welford update when grad is effectively zero ---
+        if global_norm < 1e-10:
+            return
+
+        # --- Welford update on normalized gradients ---
+        self._grad_stats["count"] += 1
+        n = self._grad_stats["count"]
+
+        for name, grad in grads.items():
+            grad_normalized = grad / global_norm
+
             if name not in self._grad_stats["mean"]:
-                self._grad_stats["mean"][name] = torch.zeros_like(grad)
-                self._grad_stats["var_numerator"][name] = torch.zeros_like(
-                    grad
-                )  # stores M2 (sum of squared deviations)
+                self._grad_stats["mean"][name] = torch.zeros_like(grad_normalized)
+                self._grad_stats["var_numerator"][name] = torch.zeros_like(grad_normalized)
 
-            # Welford's online update for running mean and variance
-            # (works on DTensors - element-wise ops are supported)
-            delta = grad - self._grad_stats["mean"][name]
+            # Welford's online update for running mean and M2
+            delta = grad_normalized - self._grad_stats["mean"][name]
             self._grad_stats["mean"][name] += delta / n
-            delta2 = grad - self._grad_stats["mean"][name]
-            self._grad_stats["var_numerator"][name] += delta * delta2  # M2 accumulator
+            delta2 = grad_normalized - self._grad_stats["mean"][name]
+            self._grad_stats["var_numerator"][name] += delta * delta2
 
         return
 
@@ -745,22 +774,21 @@ class PolicyWorkerBase(Worker):
         """
         Estimate megabytes of information edited based on cumulative gradient updates.
 
-        Uses the gradient sum (mean * count) to measure total gradient pressure.
+        Uses the raw (unnormalized) gradient sum to measure total gradient pressure.
         A parameter is "significantly edited" if |sum_grad| > 5% of |param|.
         Megabytes edited = (3.6 * number of significant params) / (8 * 1024 * 1024).
         """
-        if self._grad_stats["count"] == 0:
+        if len(self._grad_stats["raw_sum"]) == 0:
             return 0
 
         significant_count = 0
-        n = self._grad_stats["count"]
 
         for name, param in self.model.named_parameters():
-            if name not in self._grad_stats["mean"]:
+            if name not in self._grad_stats["raw_sum"]:
                 continue
 
-            # Recover cumulative sum from running mean: sum = mean * count
-            grad_sum = self._grad_stats["mean"][name] * n
+            # Use the raw cumulative sum (unnormalized)
+            grad_sum = self._grad_stats["raw_sum"][name]
             # Use local shard instead of full_tensor to save memory
             param_data = param.data
             if hasattr(param_data, "_local_tensor"):
@@ -779,11 +807,11 @@ class PolicyWorkerBase(Worker):
     def _compute_update_diversity(self, k: int = 64) -> list[float]:
         """
         Compute update diversity as the normalized singular value spectrum of the
-        accumulated gradient sum across all 2D parameter matrices.
+        accumulated *normalized* gradient mean across all 2D parameter matrices.
 
-        For each 2D layer, computes SVD of grad_sum (= mean * count), normalizes
-        the top-k singular values to a probability distribution, then averages
-        across layers.
+        Because Welford tracks unit-norm gradients, the mean represents the average
+        gradient *direction* independent of magnitude.  SVD of this directional mean
+        reveals how many independent directions the gradient signal spans.
 
         Returns a list of k floats representing the mean spectral profile:
           - Steep dropoff (mass in first few entries) → low diversity, gradient
@@ -795,7 +823,6 @@ class PolicyWorkerBase(Worker):
         if self._grad_stats["count"] == 0:
             return []
 
-        n = self._grad_stats["count"]
         all_spectra = []  # list of normalized singular value vectors, each length q
 
         for name in self._grad_stats["mean"]:
@@ -805,12 +832,10 @@ class PolicyWorkerBase(Worker):
             if mean_grad.dim() != 2:
                 continue
 
-            # Recover accumulated sum from running mean
-            grad_sum = mean_grad * n
-
+            # Use the normalized mean directly (represents average direction)
             try:
-                q = min(k, min(grad_sum.shape))
-                _, s, _ = torch.svd_lowrank(grad_sum.float(), q=q)
+                q = min(k, min(mean_grad.shape))
+                _, s, _ = torch.svd_lowrank(mean_grad.float(), q=q)
             except Exception:
                 continue
 
@@ -839,10 +864,12 @@ class PolicyWorkerBase(Worker):
         """
         Compute mean normalized effective rank across all 2D gradient matrices.
 
-        Uses randomized SVD (svd_lowrank) for efficiency with k=64 components.
+        Uses the normalized gradient mean (from Welford on unit-norm gradients).
+        Since the mean represents average gradient *direction*, effective rank
+        measures the intrinsic dimensionality of the directional gradient signal,
+        independent of gradient magnitude.
 
-        Effective rank measures the intrinsic dimensionality of the gradient signal.
-        For each layer's gradient matrix G:
+        For each layer's normalized gradient mean:
           1. Compute randomized SVD to get top-k singular values
           2. Normalize singular values: p_i = σ_i / Σσ_j
           3. Compute entropy: H = -Σ p_i log(p_i)
@@ -863,8 +890,7 @@ class PolicyWorkerBase(Worker):
             if mean_grad.dim() != 2:
                 continue
 
-            # mean_grad is already local shard on CPU, ready for SVD
-            # Compute top-k singular values using randomized SVD (faster)
+            # Use the normalized mean directly (represents average direction)
             try:
                 q = min(k, min(mean_grad.shape))
                 _, s, _ = torch.svd_lowrank(mean_grad.float(), q=q)
