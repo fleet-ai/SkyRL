@@ -15,15 +15,15 @@ resources:
   ports: 6479
   any_of:
     # B200:2 only - H100:4 fails at vLLM init due to less VRAM per GPU
-    - accelerators: H200:2
+    - accelerators: H200-SXM:2
       cloud: lambda
-    - accelerators: H200:2
+    - accelerators: H200-SXM:2
       cloud: runpod
-    - accelerators: H200:2
+    - accelerators: H200-SXM:2
       cloud: vast
-    - accelerators: H200:2
+    - accelerators: H200-SXM:2
       cloud: primeintellect
-    - accelerators:  H200:2
+    - accelerators:  H200:4
       cloud: primeintellect
 num_nodes: 1
 
