@@ -26,6 +26,7 @@ on:
           - lambda
           - runpod
           - vast
+          - hyperbolic
         default: any
       task_name:
         description: "SkyPilot task name (YAML file in skyrl-train/tasks/)"
@@ -61,7 +62,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install SkyPilot
-        run: pip install "skypilot[lambda,runpod,vast,primeintellect]"
+        run: pip install "skypilot[lambda,runpod,vast,primeintellect,hyperbolic]"
 
       - name: Configure Cloud Credentials
         run: |
@@ -81,8 +82,12 @@ jobs:
           pip install prime
           prime config set-api-key "${{ secrets.PRIME_INTELLECT_API_KEY }}"
 
+          # Hyperbolic
+          mkdir -p ~/.hyperbolic
+          echo "${{ secrets.HYPERBOLIC_API_KEY }}" > ~/.hyperbolic/api_key
+
       - name: Verify Cloud Credentials
-        run: sky check lambda runpod vast primeintellect
+        run: sky check lambda runpod vast primeintellect hyperbolic
 
       - name: Validate data version
         env:

@@ -29,6 +29,8 @@ resources:
       cloud: vast
     - accelerators: B200:4
       cloud: primeintellect
+    - accelerators: B200:4
+      cloud: hyperbolic
 
 num_nodes: 1
 
