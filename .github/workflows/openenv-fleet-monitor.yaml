@@ -78,8 +78,8 @@ jobs:
           echo "Cluster: $CLUSTER"
           echo ""
 
-          # First check if cluster exists
-          if ! sky status "$CLUSTER" 2>/dev/null | grep -q "$CLUSTER"; then
+          # First check if cluster exists (--refresh queries cloud providers directly)
+          if ! sky status --refresh "$CLUSTER" 2>/dev/null | grep -q "$CLUSTER"; then
             echo "ERROR: Cluster '$CLUSTER' does not exist!"
             echo "status=CLUSTER_NOT_FOUND" >> $GITHUB_OUTPUT
             exit 0
