@@ -39,6 +39,82 @@ logger = logging.getLogger(__name__)
 # Global task cache to avoid reloading JSON for each env instance
 _TASK_CACHE: Dict[str, Dict[str, Any]] = {}
 
+# Context management tools - injected into Fleet tasks when enabled
+# These allow the model to manage its context window during long trajectories
+CONTEXT_TOOLS = [
+    # --- Context/History Management ---
+    {
+        "type": "function",
+        "function": {
+            "name": "check_context",
+            "description": "Check current context: visible/total turn counts",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_context",
+            "description": "Drop old turns to free up context space",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keep_recent_turns": {
+                        "type": "integer",
+                        "description": "Number of recent turns to keep (drops older ones)",
+                    }
+                },
+                "required": ["keep_recent_turns"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_history",
+            "description": "Search all history (including dropped) by pattern",
+            "parameters": {
+                "type": "object",
+                "properties": {"pattern": {"type": "string", "description": "Text pattern to search"}},
+                "required": ["pattern"],
+            },
+        },
+    },
+    # --- Overlong Tool Output Handling ---
+    {
+        "type": "function",
+        "function": {
+            "name": "search_tool_output",
+            "description": "Search the last truncated tool output by pattern",
+            "parameters": {
+                "type": "object",
+                "properties": {"pattern": {"type": "string", "description": "Text pattern to search"}},
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "view_tool_output",
+            "description": "View a page of the last truncated tool output",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page": {"type": "integer", "description": "Page number (1-indexed)"},
+                    "page_size": {
+                        "type": "integer",
+                        "description": "Lines per page (default 50)",
+                    },
+                },
+                "required": ["page"],
+            },
+        },
+    },
+]
+
+CONTEXT_TOOL_NAMES = {t["function"]["name"] for t in CONTEXT_TOOLS}
+
 
 def load_tasks_from_json(tasks_file: str) -> Dict[str, Any]:
     """Load tasks from JSON file with caching.
@@ -165,6 +241,12 @@ class FleetTaskEnv(BaseTextEnv):
         self.tool_calls = 0
         self.tools: List[Dict[str, Any]] = []
 
+        # Context management state
+        self.enable_context_tools = extras.get("enable_context_tools", False)
+        self.max_output_chars = extras.get("max_output_chars", 10000)
+        self.full_history: ConversationType = []  # Stores ALL messages, never dropped
+        self.last_full_output: Optional[str] = None  # Stores last truncated tool output
+
     def _normalize_task_config(self) -> Dict[str, Any]:
         """Normalize task config to OpenEnv's expected format."""
         config = self.task_config.copy()
@@ -209,9 +291,15 @@ class FleetTaskEnv(BaseTextEnv):
         # Reset state
         self.turns = 0
         self.tool_calls = 0
+        self.full_history = []
+        self.last_full_output = None
 
         # Get tools from observation (cached from __init__)
         self.tools = obs.get("tools", [])
+
+        # Add context management tools if enabled
+        if self.enable_context_tools:
+            self.tools = self.tools + CONTEXT_TOOLS
         if not self.tools:
             raise RuntimeError(f"Task {self.task_key}: no tools found in observation. Fleet env requires tools.")
 
@@ -296,6 +384,7 @@ If the task is complete, say <done>. Otherwise, make a tool call."""
         step_start = time.time()
         self.turns += 1
         self.chat_history.append({"role": "assistant", "content": action})
+        self.full_history.append({"role": "assistant", "content": action})
 
         max_turns_reached = self.turns >= self.max_turns
 
@@ -310,8 +399,11 @@ If the task is complete, say <done>. Otherwise, make a tool call."""
         reward = 0.0
         mcp_time = 0.0
 
+        # Handle context management tools locally (no MCP call)
+        if tool_call and tool_call["name"] in CONTEXT_TOOL_NAMES:
+            tool_result = self._execute_context_tool(tool_call["name"], tool_call.get("arguments", {}))
         # Execute tool call if present via OpenEnv
-        if tool_call and self.openenv_task_env:
+        elif tool_call and self.openenv_task_env:
             self.tool_calls += 1
             # Build action dict for OpenEnv
             openenv_action = {
@@ -328,6 +420,17 @@ If the task is complete, say <done>. Otherwise, make a tool call."""
                 tool_result = obs.get("observation")
                 if "tool_error" in info:
                     error = info["tool_error"]
+
+                # Truncate long tool outputs and store full version for retrieval
+                if tool_result and isinstance(tool_result, str) and len(tool_result) > self.max_output_chars:
+                    self.last_full_output = tool_result
+                    tool_result = (
+                        tool_result[: self.max_output_chars]
+                        + f"\n\n[TRUNCATED - {len(self.last_full_output)} chars total. "
+                        + "Use search_tool_output or view_tool_output to access full content.]"
+                    )
+                else:
+                    self.last_full_output = None
             except Exception as e:
                 mcp_time = time.time() - mcp_start
                 error = str(e)
@@ -371,6 +474,7 @@ If the task is complete, say <done>. Otherwise, make a tool call."""
 
         new_obs = {"role": "user", "content": obs_content}
         self.chat_history.append(new_obs)
+        self.full_history.append(new_obs)
 
         step_time = time.time() - step_start
         metadata = {
@@ -398,6 +502,90 @@ If the task is complete, say <done>. Otherwise, make a tool call."""
         For async contexts, use step_async() instead.
         """
         return asyncio.run(self.step_async(action))
+
+    def _execute_context_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
+        """
+        Execute a context management tool locally (no MCP call).
+
+        These tools allow the model to manage its context window during long trajectories.
+        """
+        if tool_name == "check_context":
+            # Count turns (assistant + user pairs) in visible vs full history
+            visible_turns = len([m for m in self.chat_history if m["role"] == "assistant"])
+            total_turns = len([m for m in self.full_history if m["role"] == "assistant"])
+            return json.dumps(
+                {
+                    "visible_turns": visible_turns,
+                    "total_turns": total_turns,
+                    "dropped_turns": total_turns - visible_turns,
+                }
+            )
+
+        elif tool_name == "manage_context":
+            n = args.get("keep_recent_turns", 5)
+            # Keep system message + last n turns (each turn = assistant + user message)
+            system = [m for m in self.chat_history if m["role"] == "system"]
+            non_system = [m for m in self.chat_history if m["role"] != "system"]
+            keep_count = n * 2  # n turns = n assistant + n user messages
+
+            if len(non_system) > keep_count:
+                dropped = len(non_system) - keep_count
+                self.chat_history = system + non_system[-keep_count:]
+                return f"Dropped {dropped} messages. {len(self.chat_history)} remaining."
+            else:
+                return f"Nothing to drop. {len(self.chat_history)} messages."
+
+        elif tool_name == "search_history":
+            pattern = args.get("pattern", "").lower()
+            if not pattern:
+                return json.dumps({"error": "pattern is required"})
+            matches = []
+            for i, msg in enumerate(self.full_history):
+                content = msg.get("content", "")
+                if pattern in content.lower():
+                    matches.append(
+                        {
+                            "index": i,
+                            "role": msg["role"],
+                            "snippet": content[:200],
+                        }
+                    )
+            return json.dumps({"matches": matches[:10]})
+
+        elif tool_name == "search_tool_output":
+            if not self.last_full_output:
+                return "No truncated output available."
+            pattern = args.get("pattern", "").lower()
+            if not pattern:
+                return json.dumps({"error": "pattern is required"})
+            lines = self.last_full_output.split("\n")
+            matches = []
+            for i, line in enumerate(lines):
+                if pattern in line.lower():
+                    matches.append({"line": i + 1, "content": line[:200]})
+            return json.dumps({"matches": matches[:20]})
+
+        elif tool_name == "view_tool_output":
+            if not self.last_full_output:
+                return "No truncated output available."
+            page = args.get("page", 1)
+            page_size = args.get("page_size", 50)
+            lines = self.last_full_output.split("\n")
+            total_pages = (len(lines) + page_size - 1) // page_size
+            start = (page - 1) * page_size
+            end = start + page_size
+            page_lines = lines[start:end]
+            return json.dumps(
+                {
+                    "page": page,
+                    "total_pages": total_pages,
+                    "total_lines": len(lines),
+                    "content": "\n".join(page_lines),
+                }
+            )
+
+        else:
+            return json.dumps({"error": f"Unknown context tool: {tool_name}"})
 
     def close(self):
         """Close the Fleet environment and cleanup resources."""
