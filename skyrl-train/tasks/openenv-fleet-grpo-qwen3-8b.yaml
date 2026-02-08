@@ -31,6 +31,8 @@ resources:
       cloud: primeintellect
     - accelerators: B200:4
       cloud: hyperbolic
+    - accelerators: B200:4
+      cloud: nebius
 
 num_nodes: 1
 
