@@ -697,7 +697,7 @@ class PolicyWorkerBase(Worker):
 
         return
 
-    def compute_gradient_metrics(self) -> Dict[str, float | int | list[float]]:
+    def compute_gradient_metrics(self) -> Dict[str, float | list[float]]:
         """Compute all 4 gradient-based metrics."""
         grad_metrics = {
             "grad:snr": self._compute_snr(),
@@ -743,64 +743,97 @@ class PolicyWorkerBase(Worker):
 
     def _compute_megabytes_edited(self) -> float:
         """
-        Estimate megabytes of information edited based on significant gradient updates.
+        Estimate megabytes of information edited based on cumulative gradient updates.
 
-        A gradient is "significant" if |grad| > 5% of |param|.
-        Megabytes edited = floor(3.6 * number of significant gradients) / (8 * 1024 * 1024).
+        Uses the gradient sum (mean * count) to measure total gradient pressure.
+        A parameter is "significantly edited" if |sum_grad| > 5% of |param|.
+        Megabytes edited = (3.6 * number of significant params) / (8 * 1024 * 1024).
         """
         if self._grad_stats["count"] == 0:
             return 0
 
         significant_count = 0
+        n = self._grad_stats["count"]
 
         for name, param in self.model.named_parameters():
             if name not in self._grad_stats["mean"]:
                 continue
 
-            mean_grad = self._grad_stats["mean"][name]
+            # Recover cumulative sum from running mean: sum = mean * count
+            grad_sum = self._grad_stats["mean"][name] * n
             # Use local shard instead of full_tensor to save memory
             param_data = param.data
             if hasattr(param_data, "_local_tensor"):
                 param_data = param_data._local_tensor
             param_magnitude = torch.abs(param_data.cpu())
 
-            # Count gradients where |mean_grad| > 5% of |param|
-            # Both mean_grad and param.data are DTensors with same sharding
+            # Count params where cumulative gradient exceeds 5% of param magnitude
             threshold = 0.05 * param_magnitude
-            significant = (torch.abs(mean_grad) > threshold).sum().item()
+            significant = (torch.abs(grad_sum) > threshold).sum().item()
             significant_count += significant
 
         # 3.6 bits per significant gradient update
         # source: http://arxiv.org/abs/2505.24832
         return (3.6 * significant_count) / (8 * 1024 * 1024)  # conversion bits -> megabytes.
 
-    def _compute_update_diversity(self) -> list[float]:
+    def _compute_update_diversity(self, k: int = 64) -> list[float]:
         """
-        Compute update diversity as aggregated gradient histogram distribution.
+        Compute update diversity as the normalized singular value spectrum of the
+        accumulated gradient sum across all 2D parameter matrices.
 
-        Aggregates all mean gradients into a single histogram and returns the
-        normalized probability distribution. This can be used with cosine
-        similarity to measure gradient pattern differences across environments.
+        For each 2D layer, computes SVD of grad_sum (= mean * count), normalizes
+        the top-k singular values to a probability distribution, then averages
+        across layers.
+
+        Returns a list of k floats representing the mean spectral profile:
+          - Steep dropoff (mass in first few entries) → low diversity, gradient
+            keeps pushing in the same few directions
+          - Flat spectrum → high diversity, gradient spans many directions
+
+        Returns empty list if no accumulated stats.
         """
         if self._grad_stats["count"] == 0:
             return []
 
-        # Collect all mean gradients into a single tensor (already local shards on CPU)
-        all_grads = []
-        for name in self._grad_stats["mean"]:
-            g = self._grad_stats["mean"][name]
-            all_grads.append(g.flatten())
+        n = self._grad_stats["count"]
+        all_spectra = []  # list of normalized singular value vectors, each length q
 
-        if len(all_grads) == 0:
+        for name in self._grad_stats["mean"]:
+            mean_grad = self._grad_stats["mean"][name]
+
+            # Only compute for 2D matrices (weight layers)
+            if mean_grad.dim() != 2:
+                continue
+
+            # Recover accumulated sum from running mean
+            grad_sum = mean_grad * n
+
+            try:
+                q = min(k, min(grad_sum.shape))
+                _, s, _ = torch.svd_lowrank(grad_sum.float(), q=q)
+            except Exception:
+                continue
+
+            s_sum = s.sum()
+            if s_sum == 0:
+                continue
+
+            # Normalize to probability distribution
+            p = s / s_sum
+
+            # Pad to length k if needed (smaller layers)
+            if len(p) < k:
+                p = torch.nn.functional.pad(p, (0, k - len(p)), value=0.0)
+
+            all_spectra.append(p)
+
+        if len(all_spectra) == 0:
             return []
-        all_grads = torch.cat(all_grads)
-        hist = torch.histc(all_grads, bins=10)
-        hist_sum = hist.sum()
-        if hist_sum > 0:
-            hist = hist / hist_sum  # Normalize to probability distribution
-            return hist.tolist()
-        else:
-            return [0.0] * 10  # All zeros if no gradients
+
+        # Average normalized spectra across all layers
+        stacked = torch.stack(all_spectra)
+        mean_spectrum = stacked.mean(dim=0)
+        return mean_spectrum.tolist()
 
     def _compute_effective_rank(self, k: int = 64) -> float:
         """
@@ -960,10 +993,6 @@ class PolicyWorkerBase(Worker):
         loss = policy_loss + kl_loss_term - entropy_loss_term
         self.strategy.backward(loss, self.model, self.optimizer)
 
-        # Accumulate gradient statistics for cross-step metrics
-        if self.cfg.trainer.policy.track_extra_gradient_metrics:
-            self._accumulate_gradient_stats()
-
         status = {
             "final_loss": loss.item(),
             "policy_loss": policy_loss.item(),
@@ -993,6 +1022,11 @@ class PolicyWorkerBase(Worker):
             for param in self.model.parameters():
                 if param.grad is not None:
                     param.grad.mul_(scale)
+
+        # Accumulate gradient statistics from the final scaled gradient
+        # (must happen after scaling, before optimizer_step which zeros grads)
+        if self.cfg.trainer.policy.track_extra_gradient_metrics:
+            self._accumulate_gradient_stats()
 
         # Perform optimizer step (includes gradient clipping)
         grad_norm = self.strategy.optimizer_step(self.optimizer, self.model, self.scheduler, name="actor")
