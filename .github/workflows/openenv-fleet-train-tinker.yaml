@@ -44,7 +44,12 @@ on:
 
 permissions:
   contents: read
-  actions: write  # Required to trigger monitor workflow
+  actions: write  # Required to trigger training workflow
+
+# Allow cancellation of the workflow
+concurrency:
+  group: tinker-train-${{ github.run_id }}
+  cancel-in-progress: true
 
 env:
   TASKS_BUCKET: "fleet-internal-datasets"
@@ -52,6 +57,7 @@ env:
 
 jobs:
   launch:
+    name: "Launch Training (by ${{ github.actor }})"
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -167,7 +173,8 @@ jobs:
             --field batch_size="${{ inputs.batch_size }}" \
             --field n_samples_per_prompt="${{ inputs.n_samples_per_prompt }}" \
             --field slack_thread_ts="${{ steps.slack_start.outputs.ts }}" \
-            --field iteration=1
+            --field iteration=1 \
+            --field triggered_by="${{ github.actor }}"
 
       - name: Summary
         run: |

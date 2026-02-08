@@ -40,13 +40,24 @@ on:
         type: string
         required: true
         default: "1"
+      triggered_by:
+        description: "Original user who triggered the training"
+        type: string
+        required: false
+        default: "unknown"
 
 permissions:
   contents: read
   actions: write
 
+# Concurrency for the same run
+concurrency:
+  group: tinker-runner-${{ inputs.run_name }}
+  cancel-in-progress: false
+
 jobs:
   train:
+    name: "Train ${{ inputs.run_name }} (iter ${{ inputs.iteration }}) by ${{ inputs.triggered_by }}"
     runs-on: ubuntu-latest
     timeout-minutes: 350  # ~5.8 hours
 
