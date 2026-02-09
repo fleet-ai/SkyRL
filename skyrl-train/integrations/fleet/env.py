@@ -356,7 +356,7 @@ If the task is complete, say <done>. Otherwise, make a tool call."""
                 if "tool_error" in info:
                     error = info["tool_error"]
 
-                # Truncate long tool outputs and store full version for retrieval
+                # Truncate long tool outputs and store full version for retrieval if context management is enabled
                 if tool_result and isinstance(tool_result, str) and self.context_manager:
                     tool_result = self.context_manager.truncate_output(tool_result)
             except Exception as e:
