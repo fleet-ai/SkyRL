@@ -73,6 +73,10 @@ pip3 install --user "skypilot-nightly[lambda,runpod,vast]"
 export PATH="$HOME/.local/bin:$PATH"
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 
+# Create symlink so GHA runner service can find sky
+sudo ln -sf "$HOME/.local/bin/sky" /usr/local/bin/sky
+sky --version
+
 # 3. Configure cloud credentials
 log "Configuring cloud credentials..."
 
