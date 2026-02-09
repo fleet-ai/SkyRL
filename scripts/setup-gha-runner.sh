@@ -58,7 +58,14 @@ sudo apt-get install -y \
     python3-venv \
     build-essential \
     libssl-dev \
-    libffi-dev
+    libffi-dev \
+    unzip
+
+# Install AWS CLI (needed for S3 data validation)
+log "Installing AWS CLI..."
+curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+cd /tmp && unzip -q awscliv2.zip && sudo ./aws/install
+aws --version
 
 # 2. Install SkyPilot
 log "Installing SkyPilot..."
