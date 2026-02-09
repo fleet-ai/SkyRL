@@ -317,7 +317,7 @@ class SkyRLGymGenerator(GeneratorInterface):
                         await self._run_in_executor_if_available(env.close)
                         # Use token-level reward format [0.0] to match normal trajectories when custom_chat_template is None
                         zero_reward = 0.0 if self.custom_chat_template else [0.0]
-                        return TrajectoryOutput(
+                        timeout_output = TrajectoryOutput(
                             response_ids=[self.tokenizer.eos_token_id],
                             reward=zero_reward,
                             stop_reason="timeout",
@@ -326,6 +326,10 @@ class SkyRLGymGenerator(GeneratorInterface):
                             rollout_logprobs=[0.0],
                             env_metrics={"trajectory_timeout": 1.0},
                         )
+                        # Return correct type for step-wise mode
+                        if is_step_wise:
+                            return StepWiseOutput(step_outputs=[timeout_output])
+                        return timeout_output
 
                 if len(agent_loop_state.input_ids) > max_input_length:
                     stop_reason = "length"
@@ -495,7 +499,7 @@ class SkyRLGymGenerator(GeneratorInterface):
             logger.warning(f"Trajectory timeout for session {session_id}: {e}. Returning zero-reward trajectory.")
             await self._run_in_executor_if_available(env.close)
             zero_reward = 0.0 if self.custom_chat_template else [0.0]
-            return TrajectoryOutput(
+            timeout_output = TrajectoryOutput(
                 response_ids=[self.tokenizer.eos_token_id],
                 reward=zero_reward,
                 stop_reason="timeout",
@@ -504,6 +508,10 @@ class SkyRLGymGenerator(GeneratorInterface):
                 rollout_logprobs=[0.0],
                 env_metrics={"trajectory_timeout": 1.0},
             )
+            # Return correct type for step-wise mode
+            if is_step_wise:
+                return StepWiseOutput(step_outputs=[timeout_output])
+            return timeout_output
 
         # Get environment-specific metrics after the episode is done
         env_metrics = env.get_metrics()
