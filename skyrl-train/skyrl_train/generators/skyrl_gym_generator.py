@@ -410,7 +410,10 @@ class SkyRLGymGenerator(GeneratorInterface):
                 if getattr(self.generator_cfg, "inject_context_status", False) and new_obs:
                     current_tokens = len(agent_loop_state.input_ids) + len(output_ids)
                     percentage = min(100, int((current_tokens / max_input_length) * 100))
-                    status_line = f"\n[Context: {current_tokens:,}/{max_input_length:,} tokens ({percentage}%), Turn {turn}/{self.generator_cfg.max_turns}]"
+                    # Get turn count from env metadata (FleetTaskEnv tracks this)
+                    step_metadata = env_step_output.get("metadata", {})
+                    current_turn = step_metadata.get("turn", 0)
+                    status_line = f"\n[Context: {current_tokens:,}/{max_input_length:,} tokens ({percentage}%), Turn {current_turn}/{self.generator_cfg.max_turns}]"
                     # Append to last observation's content
                     if isinstance(new_obs[-1], dict) and "content" in new_obs[-1]:
                         new_obs[-1]["content"] += status_line
