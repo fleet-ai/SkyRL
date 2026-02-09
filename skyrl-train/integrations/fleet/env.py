@@ -171,7 +171,9 @@ class FleetTaskEnv(BaseTextEnv):
         self.enable_context_tools = env_config.get("enable_context_tools", False)
         self.context_manager: Optional[ContextManager] = None
         if self.enable_context_tools:
-            logger.info(f"Enabling context management tools with max_output_chars={extras.get('max_output_chars', 10000)}")
+            logger.info(
+                f"Enabling context management tools with max_output_chars={extras.get('max_output_chars', 10000)}"
+            )
             self.context_manager = ContextManager(max_output_chars=extras.get("max_output_chars", 10000))
 
     def _normalize_task_config(self) -> Dict[str, Any]:

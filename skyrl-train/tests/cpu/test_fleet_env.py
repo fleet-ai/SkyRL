@@ -684,10 +684,12 @@ class TestEnableContextTools:
         tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test"}]))
 
         # Set enable_context_tools in env_config (where Hydra puts it)
-        env_config = DictConfig({
-            "tasks_file": str(tasks_file),
-            "enable_context_tools": True,
-        })
+        env_config = DictConfig(
+            {
+                "tasks_file": str(tasks_file),
+                "enable_context_tools": True,
+            }
+        )
 
         # extras should NOT have enable_context_tools
         env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
