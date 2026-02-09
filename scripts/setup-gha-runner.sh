@@ -67,14 +67,18 @@ curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscl
 cd /tmp && unzip -q awscliv2.zip && sudo ./aws/install
 aws --version
 
-# 2. Install SkyPilot
+# 2. Install SkyPilot and cloud CLIs
 log "Installing SkyPilot..."
 pip3 install --user "skypilot-nightly[lambda,runpod,vast]"
+pip3 install --user runpod prime
 export PATH="$HOME/.local/bin:$PATH"
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 
-# Create symlink so GHA runner service can find sky
+# Create symlinks so GHA runner service can find tools
+log "Creating symlinks for CLI tools..."
 sudo ln -sf "$HOME/.local/bin/sky" /usr/local/bin/sky
+sudo ln -sf "$HOME/.local/bin/runpod" /usr/local/bin/runpod
+sudo ln -sf "$HOME/.local/bin/prime" /usr/local/bin/prime
 sky --version
 
 # 3. Configure cloud credentials
