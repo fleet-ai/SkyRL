@@ -417,6 +417,12 @@ If the task is complete, say <done>. Otherwise, make a tool call."""
             "mcp_time": mcp_time,
         }
 
+        # If context was modified (e.g., manage_context dropped turns), return full chat_history
+        # so the generator can replace its copy. This is required for stepwise training to work.
+        if tool_call and self.context_manager and self.context_manager.is_context_tool(tool_call["name"]):
+            if tool_call["name"] == "manage_context":
+                metadata["modified_chat_history"] = self.chat_history.copy()
+
         return BaseTextEnvStepOutput(
             observations=[new_obs],
             reward=reward,

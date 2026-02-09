@@ -466,6 +466,12 @@ class SkyRLGymGenerator(GeneratorInterface):
                         agent_loop_state, turn_output
                     )
 
+                # If env modified chat_history (e.g., context management dropped turns),
+                # replace our copy. Must happen AFTER _update_* methods to avoid duplication.
+                step_metadata = env_step_output.get("metadata", {})
+                if step_metadata.get("modified_chat_history") is not None:
+                    agent_loop_state.chat_history = step_metadata["modified_chat_history"]
+
                 per_step_rewards.append((step_reward, agent_loop_state.response_end_idx))
 
         except TrajectoryTimeoutError as e:
