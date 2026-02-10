@@ -7,11 +7,10 @@ They are skipped in CI where these dependencies aren't available.
 import importlib.util
 import json
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from omegaconf import DictConfig
-
 
 # Check if dependencies are available using importlib
 OPENENV_AVAILABLE = importlib.util.find_spec("envs") is not None
@@ -463,6 +462,151 @@ class TestFleetTaskEnvInitMethod:
 
         with pytest.raises(RuntimeError, match="Failed to create OpenEnv FleetTaskEnv"):
             env.init([])
+
+    @patch("integrations.fleet.env.OpenEnvFleetTaskEnv")
+    @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
+    def test_init_reset_retry_succeeds_on_second_attempt(self, mock_openenv_class, tmp_path):
+        """Test that reset retries once and succeeds on second attempt."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(
+            json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "test", "env_version": "v0.0.28"}])
+        )
+
+        mock_openenv_env = MagicMock()
+        call_count = 0
+
+        async def mock_reset_async():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("500 Server Error")
+            return {"prompt": "Test", "tools": [{"name": "search"}], "step": 0}
+
+        mock_openenv_env.reset_async = mock_reset_async
+        mock_openenv_class.return_value = mock_openenv_env
+
+        env_config = DictConfig({"tasks_file": str(tasks_file)})
+        env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
+
+        # Patch asyncio.sleep to avoid actual delay in tests
+        with patch("integrations.fleet.env.asyncio.sleep", new_callable=AsyncMock):
+            chat_history, metadata = env.init([])
+
+        assert call_count == 2
+        assert len(metadata["tools"]) == 1
+
+    @patch("integrations.fleet.env.OpenEnvFleetTaskEnv")
+    @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
+    def test_init_reset_fails_after_retries(self, mock_openenv_class, tmp_path):
+        """Test that reset failure after all retries continues with empty obs."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "key": "task-1",
+                        "prompt": "Test",
+                        "env_id": "wallst",
+                        "env_version": "v0.0.28",
+                        "env_data_key": "wallst-chemicals",
+                        "env_data_version": "v0.0.2",
+                    }
+                ]
+            )
+        )
+
+        mock_openenv_env = MagicMock()
+
+        async def mock_reset_async():
+            raise Exception("500 Server Error for url: https://example.com/api/v1/env/reset")
+
+        mock_openenv_env.reset_async = mock_reset_async
+        mock_openenv_class.return_value = mock_openenv_env
+
+        env_config = DictConfig({"tasks_file": str(tasks_file)})
+        env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
+
+        # After all retries fail, obs={} so tools=[] which raises RuntimeError
+        with patch("integrations.fleet.env.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(RuntimeError, match="no tools found"):
+                env.init([])
+
+    @patch("integrations.fleet.env.OpenEnvFleetTaskEnv")
+    @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
+    def test_init_reset_logs_response_body_on_http_error(self, mock_openenv_class, tmp_path, caplog):
+        """Test that HTTP error response body is logged for debugging."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(json.dumps([{"key": "task-1", "prompt": "Test", "env_id": "wallst"}]))
+
+        mock_openenv_env = MagicMock()
+
+        # Create a mock HTTPError with response body
+        mock_response = MagicMock()
+        mock_response.text = '{"error": "env_version v0.0.28 not found"}'
+        mock_response.status_code = 500
+        http_error = Exception("500 Server Error")
+        http_error.response = mock_response
+
+        async def mock_reset_async():
+            raise http_error
+
+        mock_openenv_env.reset_async = mock_reset_async
+        mock_openenv_class.return_value = mock_openenv_env
+
+        env_config = DictConfig({"tasks_file": str(tasks_file)})
+        env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="integrations.fleet.env"):
+            with patch("integrations.fleet.env.asyncio.sleep", new_callable=AsyncMock):
+                with pytest.raises(RuntimeError, match="no tools found"):
+                    env.init([])
+
+        # Verify response body was logged
+        assert "env_version v0.0.28 not found" in caplog.text
+
+    @patch("integrations.fleet.env.OpenEnvFleetTaskEnv")
+    @patch.dict(os.environ, {"FLEET_API_KEY": "test-key"})
+    def test_init_logs_task_config(self, mock_openenv_class, tmp_path, caplog):
+        """Test that task config is logged before reset for debugging."""
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "key": "task-1",
+                        "prompt": "Test",
+                        "env_id": "wallst",
+                        "version": "v0.0.28",
+                        "data_id": "wallst-chemicals",
+                        "data_version": "v0.0.2",
+                    }
+                ]
+            )
+        )
+
+        mock_openenv_env = MagicMock()
+
+        async def mock_reset_async():
+            return {"prompt": "Test", "tools": [{"name": "read_cell"}], "step": 0}
+
+        mock_openenv_env.reset_async = mock_reset_async
+        mock_openenv_class.return_value = mock_openenv_env
+
+        env_config = DictConfig({"tasks_file": str(tasks_file)})
+        env = FleetTaskEnv(env_config, extras={"task_key": "task-1"})
+
+        import logging
+
+        with caplog.at_level(logging.INFO, logger="integrations.fleet.env"):
+            env.init([])
+
+        # Verify task config details are logged
+        assert "env_key=wallst" in caplog.text
+        assert "env_version=v0.0.28" in caplog.text
+        assert "env_data_key=wallst-chemicals" in caplog.text
+        assert "env_data_version=v0.0.2" in caplog.text
 
 
 class TestFleetTaskEnvStep:

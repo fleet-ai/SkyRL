@@ -209,6 +209,16 @@ class FleetTaskEnv(BaseTextEnv):
         # This creates the Fleet env (fleet.make) and fetches tools (list_tools)
         task_config = self._normalize_task_config()
 
+        # Log task config for debugging reset failures
+        logger.info(
+            f"Fleet env reset: task_key={task_config.get('task_key')}, "
+            f"env_key={task_config.get('env_key')}, "
+            f"env_version={task_config.get('env_version')}, "
+            f"env_data_key={task_config.get('env_data_key')}, "
+            f"env_data_version={task_config.get('env_data_version')}, "
+            f"env_variables={task_config.get('env_variables')}"
+        )
+
         try:
             self.openenv_task_env = OpenEnvFleetTaskEnv(
                 task_config=task_config,
@@ -220,7 +230,41 @@ class FleetTaskEnv(BaseTextEnv):
             raise RuntimeError(f"Failed to create OpenEnv FleetTaskEnv: {e}") from e
 
         # Reset episode state (tools are already cached from __init__)
-        obs = await self.openenv_task_env.reset_async()
+        # Retry once with delay — Fleet instances sometimes need a moment after provisioning
+        max_retries = 1
+        obs = None
+        for attempt in range(max_retries + 1):
+            try:
+                obs = await self.openenv_task_env.reset_async()
+                break
+            except Exception as e:
+                # Extract response body from HTTPError if available
+                error_body = ""
+                if hasattr(e, "response") and e.response is not None:
+                    try:
+                        error_body = f" | response_body={e.response.text}"
+                    except Exception:
+                        error_body = f" | status_code={e.response.status_code}"
+
+                if attempt < max_retries:
+                    logger.warning(
+                        f"Fleet env reset failed (attempt {attempt + 1}/{max_retries + 1}), "
+                        f"retrying in 5s: task_key={self.task_key}, "
+                        f"error={e}{error_body}"
+                    )
+                    await asyncio.sleep(5)
+                else:
+                    logger.error(
+                        f"Fleet env reset failed after {max_retries + 1} attempts: "
+                        f"task_key={self.task_key}, "
+                        f"env_key={task_config.get('env_key')}, "
+                        f"env_version={task_config.get('env_version')}, "
+                        f"env_data_key={task_config.get('env_data_key')}, "
+                        f"env_data_version={task_config.get('env_data_version')}, "
+                        f"error={e}{error_body}"
+                    )
+                    # Continue with empty observation so training doesn't crash
+                    obs = {}
 
         # Reset state
         self.turns = 0

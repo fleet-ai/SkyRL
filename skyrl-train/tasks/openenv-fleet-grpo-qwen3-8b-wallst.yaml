@@ -59,7 +59,7 @@ num_nodes: 1
 
 workdir:
   url: https://github.com/fleet-ai/SkyRL.git
-  ref: main
+  ref: wallst-training-launch
 
 envs:
   # These are passed via --env from GHA workflow
@@ -130,11 +130,13 @@ setup: |
 
   # Prepare dataset (env_data_key will be used as data_source for per-data-key metrics)
   DATA_DIR="$HOME/data/fleet/${MODALITY}"
-  uv run python -m integrations.fleet.prepare_dataset \
-    --tasks-json "$TASKS_FILE" \
-    --output-dir "$DATA_DIR" \
-    --modality "$MODALITY" \
-    --env-filter "$ENV_KEY"
+  PREPARE_CMD="uv run python -m integrations.fleet.prepare_dataset \
+    --tasks-json $TASKS_FILE \
+    --output-dir $DATA_DIR \
+    --modality $MODALITY \
+    --env-filter $ENV_KEY"
+  [ -n "$MAX_TASKS" ] && PREPARE_CMD="$PREPARE_CMD --max-tasks $MAX_TASKS"
+  eval "$PREPARE_CMD"
 
 run: |
   set -euo pipefail

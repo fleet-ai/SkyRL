@@ -1,141 +1,163 @@
-# Claude Code Instructions for SkyRL
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Learnings
 
 The `learnings/` folder contains documented knowledge about SkyRL internals:
-- `training-mechanics.md` - step_wise_trajectories, retokenize_chat_history, chat templates, loss reduction
+- `training-mechanics.md` — step_wise_trajectories, retokenize_chat_history, chat templates, loss reduction modes, thinking token stripping
 
 **Always check learnings/ before asking questions about SkyRL training mechanics.**
 
-## Project Documentation
+## Critical Rules
 
-- `docs/experiments.md` - Main experiment log: dataset, method, changelog (v0.2→v0.2.4), analysis, future work
+1. **NEVER push to main** — Always create a branch and open a PR. Do NOT merge PRs; the user will review and merge.
+2. **Always push to origin (fleet-ai/SkyRL)** — Never push to upstream (NovaSky-AI/SkyRL). When creating PRs, use `--repo fleet-ai/SkyRL`.
+3. **DO NOT use Fleet SDK directly** — Use OpenEnv as the abstraction layer. Use OpenEnv's `FleetTaskEnv` from `envs.fleet_env.task_env` for Fleet task integration.
+4. **Always look at API documentation** — Do not guess flags or API parameters. Read actual docs/source first.
 
-## Critical Rules - DO NOT VIOLATE
+## Build & Install
 
-1. **NEVER push to main** - Always create a branch and open a PR for review. Do NOT merge PRs - the user will review and merge them.
-
-2. **Always push to origin (fleet-ai/SkyRL)** - Never push to upstream (NovaSky-AI/SkyRL). When creating PRs, use `--repo fleet-ai/SkyRL`.
-
-3. **Always run black before commits** - Format Python code before every commit:
-   ```bash
-   black skyrl-train/integrations/fleet/
-   ```
-
-   Or run full pre-commit before creating a PR:
-   ```bash
-   uv pip install pre-commit
-   pre-commit run --all-files --config .pre-commit-config.yaml
-   ```
-
-   If pre-commit reformats files, stage them and commit again.
-
-4. **DO NOT use Fleet SDK directly** - Use OpenEnv as the abstraction layer. The integration should go through OpenEnv, not call Fleet SDK APIs directly.
-   - Fleet SDK repo: `/Users/deniz/repos/fleet-sdk`
-   - OpenEnv repo: `/Users/deniz/repos/OpenEnv`
-   - Use OpenEnv's `FleetTaskEnv` from `envs.fleet_env.task_env` for Fleet task integration
-
-5. **Always look at API documentation** - Do not guess flags or API parameters. Read the actual documentation first.
-   - Check the local fleet-sdk and OpenEnv repos for documentation
-   - Look at existing examples in those repos
-
-6. **Tinker integration must mimic SkyRL's skyrl_gym_generator** - Any development in Tinker code (`integrations/fleet/entrypoints/main_fleet_tinker.py`) must follow the same patterns as `skyrl_train/generators/skyrl_gym_generator.py`:
-   - Use same parameter names: `max_input_length`, `max_generate_length`, `max_sequence_length`
-   - Use same context length handling: check `if len(input_ids) > max_input_length` to end rollout
-   - Use DAPO overlong filtering: truncate sequences > `max_sequence_length` and zero out loss mask
-   - Match metrics naming: `pass_at_n`, per-environment metrics, etc.
-
-7. **Always run tests before creating PRs** - Ensure tests pass before pushing code:
-   ```bash
-   # Run all CPU tests
-   cd skyrl-train && uv run --isolated --extra dev pytest tests/cpu/ -v
-
-   # Run specific test file
-   uv run --isolated --extra dev pytest tests/cpu/test_trainer_utils.py -v
-   ```
-
-   Test requirements:
-   - All existing tests must pass before creating or updating a PR
-   - New functionality should include test coverage
-   - Test edge cases and error conditions, not just happy paths
-   - When fixing bugs, add regression tests that would have caught the bug
-   - Use descriptive test names that explain what is being tested
-
-## Eval Trajectory Analysis (Required for Each Training Run)
-
-When documenting a training run, you MUST analyze eval trajectories from S3.
-
-### 1. Download Eval Trajectories
+Uses `uv` (>=0.8.10) as the package manager. Python 3.12 required.
 
 ```bash
-aws s3 cp s3://skyrl-trajectories/evals/{run_name}/global_step_0/{env}.jsonl /tmp/{env}_step0.jsonl
+# Install skyrl-train with dev dependencies
+cd skyrl-train && uv sync --extra dev
+
+# Install with an inference backend (vllm and sglang are mutually exclusive)
+cd skyrl-train && uv sync --extra dev --extra vllm
+cd skyrl-train && uv sync --extra dev --extra sglang
+
+# Install skyrl-gym
+cd skyrl-gym && uv sync --extra dev
+
+# Install skyrl-tx
+cd skyrl-tx && uv sync
 ```
 
-### 2. Trajectory Format
+## Formatting & Linting
 
-- `input_prompt`: Full prompt string
-- `output_response`: Model's response string
-- `score`: List of per-token scores (check if any > 0 for success)
-- `stop_reason`: Why generation stopped
-- `env_extras`: Contains `task_key`, `data_source`
-
-### 3. Compute These Metrics Per Environment
-
-| Metric | How to compute |
-|--------|----------------|
-| Avg Turns | Count `<\|im_start\|>assistant` in `output_response` |
-| Avg Tool Calls | Count `"name":` patterns in `output_response` |
-| Success Rate | From `aggregated_results.jsonl` pass@3 |
-
-### 4. Get Results from aggregated_results.jsonl
+Pre-commit hooks: ruff (with --fix), black (line-length 120), gitleaks (secret detection). Ruff excludes `skyrl-agent/`.
 
 ```bash
+# Run all pre-commit checks (do this before every PR)
+pre-commit run --all-files --config .pre-commit-config.yaml
+
+# Or use the format script
+bash format.sh
+```
+
+If pre-commit reformats files, stage them and commit again.
+
+## Tests
+
+```bash
+# skyrl-train CPU tests (what CI runs)
+cd skyrl-train && uv run --frozen pytest tests/cpu/ -v
+
+# Single test file
+cd skyrl-train && uv run --frozen pytest tests/cpu/test_trainer_utils.py -v
+
+# skyrl-gym tests
+cd skyrl-gym && uv run --frozen pytest tests/
+
+# GPU tests (requires GPU)
+cd skyrl-train && uv run --frozen pytest tests/gpu/
+```
+
+Pytest markers: `vllm`, `sglang`, `integrations`, `megatron`.
+
+CI runs code quality checks first (ruff, black, gitleaks), then CPU tests for skyrl-train and skyrl-gym in parallel.
+
+## Architecture
+
+SkyRL is a monorepo with four independent packages:
+
+**skyrl-train** — RL training framework. The core package.
+- `entrypoints/main_base.py` — Hydra-based training entry point
+- `trainer.py` — `RayPPOTrainer`: main training loop, advantage computation, weight updates
+- `fully_async_trainer.py` — Async variant with in-flight weight updates
+- `generators/skyrl_gym_generator.py` — Agent loop for multi-turn rollouts (init env → generate → env.step → repeat)
+- `generators/base.py` — `GeneratorInterface` abstract class; `GeneratorInput`/`GeneratorOutput` types
+- `inference_engines/` — Backends: `vllm/`, `sglang/`, `ray_wrapped_inference_engine.py`, `remote_inference_engine.py`
+- `workers/` — Ray actors for policy/ref/critic training; `fsdp/` and `megatron/` strategy implementations
+- `distributed/` — `DistributedStrategy` abstraction with FSDP2 and Megatron backends
+- `weight_sync/` — Weight sync between inference and training: NCCL, gloo, CUDA IPC, broadcast
+- `dataset/` — `PromptDataset`, preprocessing, replay buffer for async training
+- `utils/ppo_utils.py` — PPO/GRPO loss functions, advantage estimators (GRPO, GAE, RLOO, REINFORCE++), KL controllers
+- `model_wrapper.py` — `HFModelWrapper`: model loading, LoRA, attention configuration
+- `config/ppo_base_config.yaml` — Default Hydra config with all settings
+
+**skyrl-gym** — Gymnasium-style environments for RL tasks.
+- `core.py` — Base `Env` class
+- `envs/` — Implementations: `gsm8k/`, `aime/`, `search/`, `sql/`, `lcb/` (LiveCodeBench), `searchcode/`
+- `tools/` — Tool implementations (search, SQL, code execution)
+- `metrics.py` — Environment metrics
+
+**skyrl-agent** — Agent layer for long-horizon tasks.
+- `agents/` — Agent implementations
+- `tasks/` — Task definitions (SWE-Bench, MemAgent, WebResearch)
+- `dispatcher/` — Async dispatching
+- `integrations/` — Backend integrations (skyrl-train, verl, tinker)
+- `auto.py` — `AutoAgentRunner`
+
+**skyrl-tx** — Tinker-like REST API backend for post-training (JAX-based).
+- `tinker/` — Engine, API, database models, JAX backend
+- `models/` — Model implementations (Qwen3, Llama3)
+- CLI entry point: `tx` command
+
+## Configuration System
+
+Hydra-based. Root config: `skyrl-train/skyrl_train/config/ppo_base_config.yaml`.
+
+Key config sections:
+- `data` — train/val data paths
+- `trainer` — placement (nodes, GPUs, colocate), strategy (fsdp2/megatron), policy/ref/critic model configs
+- `trainer.algorithm` — advantage estimator, loss_reduction mode, KL control
+- `generator` — inference backend, sampling params, weight_sync_backend, step_wise_trajectories
+- `environment` — environment class, skyrl_gym settings
+
+Override via command line:
+```bash
+python -m skyrl_train.entrypoints.main_base \
+    +generator.engine_init_kwargs.chat_template=/path/to/template.jinja2 \
+    generator.step_wise_trajectories=true \
+    trainer.algorithm.loss_reduction=token_mean
+```
+
+## Training
+
+Example: GSM8K with GRPO on Qwen2.5-1.5B (see `examples/gsm8k/run_gsm8k.sh`):
+```bash
+cd skyrl-train && bash examples/gsm8k/run_gsm8k.sh
+```
+
+## Inference Backend Extras
+
+`vllm`, `sglang`, `mcore` (Megatron), `flashrl` are mutually exclusive uv extras — only one can be installed at a time. The `miniswe` extra conflicts with `flashrl`.
+
+## Fleet Integration Pattern
+
+Tinker integration code (`integrations/fleet/`) must mirror `skyrl_train/generators/skyrl_gym_generator.py`:
+- Same parameter names: `max_input_length`, `max_generate_length`, `max_sequence_length`
+- Same context length handling: end rollout when `len(input_ids) > max_input_length`
+- DAPO overlong filtering: truncate sequences > `max_sequence_length`, zero out loss mask
+- Same metrics naming: `pass_at_n`, per-environment metrics
+
+## Eval Trajectory Analysis
+
+When documenting training runs, analyze eval trajectories from S3:
+
+```bash
+# Download trajectories
+aws s3 cp s3://skyrl-trajectories/evals/{run_name}/global_step_0/{env}.jsonl /tmp/{env}_step0.jsonl
+
+# Get aggregated results
 aws s3 cp s3://skyrl-trajectories/evals/{run_name}/global_step_X/aggregated_results.jsonl -
 ```
 
-Extract `eval/{env}/pass_at_3` for each environment.
+Trajectory fields: `input_prompt`, `output_response`, `score` (per-token list), `stop_reason`, `env_extras` (contains `task_key`, `data_source`).
 
-### 5. Document Error Patterns
+Key metrics per environment: avg turns (count `<|im_start|>assistant` in output_response), avg tool calls (count `"name":` patterns), success rate (from `aggregated_results.jsonl` pass@3).
 
-Categorize failures by pattern:
-- Tool argument errors (validation failures)
-- Authorization errors (permission denied)
-- Resource not found errors
-- False completions (model confident but wrong)
-- Context overflow (hit max_input_length)
-
-### 6. Update experiments.md
-
-Document results in `fleet-research/threads/tool-use-training/experiments.md` following the template in Section 3.1.
-
-## Project Context
-
-- This is SkyRL, a reinforcement learning training framework
-- Fleet integration should use OpenEnv's `FleetTaskEnv` class (`envs/fleet_env/task_env.py`)
-- OpenEnv provides: `FleetEnvClient`, `FleetMCPTools`, `FleetTaskEnv`, `make_fleet_task_env`
-- OpenEnv repo: https://github.com/fleet-ai/OpenEnv
-
-## Fleet Task Integration Pattern
-
-The correct way to integrate Fleet tasks with SkyRL:
-
-```python
-# In SkyRL's Fleet integration env.py:
-from envs.fleet_env import FleetTaskEnv, make_fleet_task_env
-
-# Create task environment from config
-task_config = {
-    "task_key": "...",
-    "prompt": "...",
-    "env_key": "...",
-    "env_version": "...",
-    "verifier_code": "...",
-    "task_modality": "tool_use",
-}
-env = FleetTaskEnv(task_config, api_key=...)
-
-# Use Gymnasium-style interface
-obs = env.reset()
-obs, reward, done, info = env.step(action)
-env.close()
-```
+Categorize failures as: tool argument errors, authorization errors, resource not found, false completions, context overflow. Document results in `fleet-research/threads/tool-use-training/experiments.md`.
