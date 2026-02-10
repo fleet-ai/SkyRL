@@ -216,7 +216,7 @@ def wrap_trainer_with_s3_upload(
     def save_checkpoints_with_cleanup():
         """Wrapped save_checkpoints with pre-save cleanup and async S3 upload."""
         # CRITICAL: Clean up old checkpoints BEFORE saving to free disk space
-        keep_n = 2 if s3_enabled else 2  # Keep 2 for safety margin
+        keep_n = 1 if s3_enabled else 2  # Keep 1 when S3-backed to avoid disk exhaustion
         cleanup_old_local_checkpoints(ckpt_path, keep_n=keep_n)
 
         # Now save the new checkpoint (disk has space)
