@@ -144,6 +144,38 @@ Tinker integration code (`integrations/fleet/`) must mirror `skyrl_train/generat
 - DAPO overlong filtering: truncate sequences > `max_sequence_length`, zero out loss mask
 - Same metrics naming: `pass_at_n`, per-environment metrics
 
+## WandB Project Naming
+
+Use distinct WandB project names per training focus to keep runs organized:
+
+| Training Focus | `trainer.project_name` | WandB URL |
+|---|---|---|
+| All environments (general) | `fleet-task-grpo` | wandb.ai/thefleet/fleet-task-grpo |
+| Wallst only | `fleet-wallst-grpo` | wandb.ai/thefleet/fleet-wallst-grpo |
+| Jira + Outlook | `fleet-jira-outlook-grpo` | wandb.ai/thefleet/fleet-jira-outlook-grpo |
+
+Pattern: `fleet-{env_scope}-grpo`. When adding a new env-specific training config, create a new project name following this convention.
+
+## Training Run Lessons Learned
+
+**Failure modes observed (Feb 2026):**
+
+1. **Disk exhaustion at checkpoint save (OSError [Errno 28])** — Run `wallst_tool_use_cc566a69` crashed at `global_step_21`. With `keep_n=2` and S3 enabled, saving a 3rd checkpoint exceeded 200GB disk. **Fix:** `s3_checkpoints.py:219` — set `keep_n=1` when S3 is enabled since checkpoints are backed up to S3. Old checkpoints are cleaned up *before* saving the new one.
+
+2. **GPU unavailability (ResourcesUnavailableError)** — B200:4 and H200:4 instances are scarce. SkyPilot tries all clouds (Lambda, RunPod, Vast, PrimeIntellect, Nebius) but can fail if none have capacity. Runs fail instantly (~2min) with no training. **Mitigation:** Just retry later. Consider off-peak hours.
+
+3. **PrimeIntellect insufficient funds** — `API request failed: Insufficient funds in the wallet. Required: $1.00, Available: $0.00`. PrimeIntellect wallet needs funding. This blocks that cloud as a fallback.
+
+4. **Self-hosted runner disconnection** — Runner loses communication mid-job, causing instant failure unrelated to training code. **Mitigation:** Retry the workflow run.
+
+5. **Nebius not configured on runner** — `ImportError: Failed to import dependencies for Nebius AI Cloud`. Runner needs `pip install "skypilot[nebius]"`. This is non-fatal (logged as warning) but reduces available cloud options.
+
+**Pre-launch checklist:**
+- Verify S3 dataset exists: `aws s3 ls s3://fleet-internal-datasets/{DATA_VERSION}/openenv/`
+- Check GPU availability is reasonable (evenings/weekends tend to be better)
+- Ensure the `workdir.ref` in your task YAML points to the correct branch
+- Confirm the self-hosted runner is healthy before triggering
+
 ## Eval Trajectory Analysis
 
 When documenting training runs, analyze eval trajectories from S3:
