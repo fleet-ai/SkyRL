@@ -401,6 +401,12 @@ def _task_to_record(task: Dict[str, Any], env_key: str) -> Optional[Dict[str, An
     if not task_key or not prompt:
         return None
 
+    # Prefer env_data_key for data_source when available (e.g., wallst-tmt, wallst-skynet).
+    # This gives per-data-key granularity in WandB when training on a single env_key
+    # that has multiple sub-environments (like wallst with 13 data keys).
+    # Falls back to env_key for tasks without env_data_key (backward-compatible).
+    data_source = task.get("env_data_key") or env_key
+
     return {
         # Required fields for SkyRL
         "prompt": [{"role": "user", "content": prompt}],
@@ -408,7 +414,7 @@ def _task_to_record(task: Dict[str, Any], env_key: str) -> Optional[Dict[str, An
         # Task identification (passed as env_extras)
         "task_key": task_key,
         # Data source for per-environment metrics in WandB
-        "data_source": env_key,
+        "data_source": data_source,
     }
 
 

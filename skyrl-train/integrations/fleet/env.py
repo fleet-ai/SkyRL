@@ -187,6 +187,11 @@ class FleetTaskEnv(BaseTextEnv):
             config["env_key"] = config["env_id"]
         if "version" in config and "env_version" not in config:
             config["env_version"] = config["version"]
+        # Normalize data key fields (older exports use data_id/data_version)
+        if "data_id" in config and "env_data_key" not in config:
+            config["env_data_key"] = config["data_id"]
+        if "data_version" in config and "env_data_version" not in config:
+            config["env_data_version"] = config["data_version"]
 
         return config
 
