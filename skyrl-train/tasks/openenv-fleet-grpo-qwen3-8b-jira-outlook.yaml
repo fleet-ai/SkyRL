@@ -1,0 +1,235 @@
+# Fleet Task GRPO Training via SkyPilot - Qwen3-8B - Jira + Outlook
+# Usage: sky launch tasks/openenv-fleet-grpo-qwen3-8b-jira-outlook.yaml --env FLEET_API_KEY=<key> --env WANDB_API_KEY=<key>
+#
+# Combined Jira + Outlook training: trains on jira-product-discovery (~3K tasks),
+# jira-service-management (~4.7K tasks), and outlook (~1.5K tasks).
+# Total: ~9,258 tasks across 3 environments.
+#
+# Model: Qwen/Qwen3-8B (8B parameters, instruct-tuned)
+# GPUs: B200:4 (preferred), H200:4 (fallback - 141GB HBM3e per GPU)
+#
+# Key differences from base config:
+# - No ENV_KEY filter (dataset is pre-filtered to jira + outlook)
+# - DATA_VERSION=v0.4-jira-outlook (combined dataset)
+# - MAX_INPUT_LENGTH=48000 (safe default for unknown tool schema sizes)
+# - MAX_TURNS=30 (business tasks are typically structured)
+# - eval_interval=10 (frequent evals for 3-env tracking)
+# - Separate WandB project: fleet-jira-outlook-grpo
+
+name: fleet-task-grpo-qwen3-8b-jira-outlook
+
+resources:
+  disk_size: 200  # Needs space for: model (~16GB), optimizer (~32GB), Ray temp (~50GB), vLLM cache, checkpoints
+  ports: 6479
+  any_of:
+    # Prefer B200:4 (min 500GB RAM to filter out low-spec instances)
+    - accelerators: B200:4
+      cloud: lambda
+      memory: 500+
+    - accelerators: B200:4
+      cloud: runpod
+      memory: 500+
+    - accelerators: B200:4
+      cloud: vast
+      memory: 500+
+    - accelerators: B200:4
+      cloud: primeintellect
+      memory: 500+
+    - accelerators: B200:4
+      cloud: nebius
+      memory: 500+
+    # Fallback to H200:4 (141GB HBM3e per GPU)
+    - accelerators: H200:4
+      cloud: lambda
+      memory: 500+
+    - accelerators: H200:4
+      cloud: runpod
+      memory: 500+
+    - accelerators: H200:4
+      cloud: vast
+      memory: 500+
+    - accelerators: H200:4
+      cloud: primeintellect
+      memory: 500+
+    - accelerators: H200:4
+      cloud: nebius
+      memory: 500+
+
+num_nodes: 1
+
+workdir:
+  url: https://github.com/fleet-ai/SkyRL.git
+  ref: wallst-training-launch
+
+envs:
+  # These are passed via --env from GHA workflow
+  WANDB_API_KEY: ""
+  FLEET_API_KEY: ""
+  LOGGER: "wandb"
+  INFERENCE_BACKEND: "vllm"
+  # No ENV_KEY filter — dataset is pre-filtered to jira + outlook envs
+  ENV_KEY: ""
+  # Modality: jira and outlook are tool_use only
+  MODALITY: "tool_use"
+  # Training parameters
+  MAX_TURNS: 30
+  # Context budget: Using YaRN (factor=2.0) to extend Qwen3-8B from 32K to 65K context
+  # 48K input length as safe default for jira/outlook tool schemas
+  MAX_INPUT_LENGTH: 48000
+  MAX_GENERATE_LENGTH: 8192  # Increased from 4096 to allow thinking + tool calls
+  NUM_EPOCHS: 20
+  RUN_ID: ""
+  # Optional: limit number of tasks for testing
+  MAX_TASKS: ""
+  # Optional: enable context management tools (manage_context, check_context, etc.)
+  ENABLE_CONTEXT_TOOLS: ""
+  # AWS credentials (required for S3 dataset download, optional for checkpoint upload)
+  AWS_ACCESS_KEY_ID: ""
+  AWS_SECRET_ACCESS_KEY: ""
+  AWS_REGION: "us-east-1"
+  # S3 buckets
+  S3_DATASET_BUCKET: "fleet-internal-datasets"
+  S3_CHECKPOINT_BUCKET: "skyrl-checkpoints"
+  S3_TRAJECTORY_BUCKET: "skyrl-trajectories"
+  # Jira + Outlook dataset version
+  DATA_VERSION: "v0.4-jira-outlook"
+
+setup: |
+  set -euo pipefail
+  cd skyrl-train
+
+  # Validate required environment variables
+  echo "Validating environment variables..."
+  if [ -z "$FLEET_API_KEY" ]; then
+    echo "ERROR: FLEET_API_KEY is required"
+    exit 1
+  fi
+  if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+    echo "ERROR: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required for S3 dataset download"
+    exit 1
+  fi
+  echo "Environment validation passed"
+
+  uv venv --python 3.12 --seed
+  source .venv/bin/activate
+  uv sync --extra vllm
+  uv pip install wandb boto3 awscli
+
+  # Install OpenEnv for Fleet environment access (from branch with FleetTaskEnv)
+  uv pip install "git+https://github.com/fleet-ai/OpenEnv.git@deniz/fleet_client" fleet-python
+
+  # Download dataset from S3
+  mkdir -p $HOME/data/fleet
+  TASKS_FILE="$HOME/data/fleet/tasks_${MODALITY}.json"
+  S3_PATH="s3://${S3_DATASET_BUCKET}/${DATA_VERSION}/openenv/all_${MODALITY}.json"
+  echo "Downloading dataset from $S3_PATH..."
+  aws s3 cp "$S3_PATH" "$TASKS_FILE"
+  TASK_COUNT=$(python3 -c "import json; print(len(json.load(open('$TASKS_FILE'))['tasks']))")
+  echo "Downloaded $TASK_COUNT tasks for modality: $MODALITY"
+
+  # Prepare dataset (no env_filter — dataset is pre-filtered to jira + outlook)
+  DATA_DIR="$HOME/data/fleet/${MODALITY}"
+  PREPARE_CMD="uv run python -m integrations.fleet.prepare_dataset \
+    --tasks-json $TASKS_FILE \
+    --output-dir $DATA_DIR \
+    --modality $MODALITY"
+  [ -n "$MAX_TASKS" ] && PREPARE_CMD="$PREPARE_CMD --max-tasks $MAX_TASKS"
+  eval "$PREPARE_CMD"
+
+run: |
+  set -euo pipefail
+  cd skyrl-train
+  source .venv/bin/activate
+
+  TMP_DIR="$HOME/skyrl-tmp"
+  mkdir -p "$TMP_DIR"
+  export TMPDIR="$TMP_DIR"
+
+  # Help PyTorch memory allocator handle fragmentation
+  export PYTORCH_ALLOC_CONF=expandable_segments:True
+
+  TASKS_FILE="$HOME/data/fleet/tasks_${MODALITY}.json"
+  DATA_DIR="$HOME/data/fleet/${MODALITY}"
+
+  # Login to Weights & Biases
+  uv run -- python3 -c "import wandb; wandb.login(relogin=True, key='$WANDB_API_KEY')"
+
+  # Ray cluster setup - limit object store to prevent disk exhaustion
+  export RAY_RUNTIME_ENV_HOOK=ray._private.runtime_env.uv_runtime_env_hook.hook
+  export RAY_object_store_memory=10000000000  # 10GB limit for object store
+  if ! ray status --address 127.0.0.1:6479 >/dev/null 2>&1; then
+    ray start --head --disable-usage-stats --port 6479 --object-store-memory=10000000000
+  fi
+
+  # Wait for Ray
+  for i in $(seq 1 24); do
+    if ray status --address 127.0.0.1:6479 >/dev/null 2>&1; then
+      break
+    fi
+    sleep 5
+  done
+
+  TOTAL_GPUS=$SKYPILOT_NUM_GPUS_PER_NODE
+
+  # Run GRPO training with Fleet task integration (jira + outlook)
+  uv run --isolated --extra "$INFERENCE_BACKEND" \
+    --with "litellm>=1.75.5" \
+    --with "git+https://github.com/fleet-ai/OpenEnv.git@deniz/fleet_client" \
+    --with "fleet-python" \
+    --with "boto3" \
+    -m integrations.fleet.entrypoints.main_fleet \
+    data.train_data="['${DATA_DIR}/train.parquet']" \
+    data.val_data="['${DATA_DIR}/validation.parquet']" \
+    environment.env_class=fleet_task \
+    environment.skyrl_gym.fleet_task.tasks_file="$TASKS_FILE" \
+    ${ENABLE_CONTEXT_TOOLS:+environment.skyrl_gym.fleet_task.enable_context_tools=true} \
+    ${ENABLE_CONTEXT_TOOLS:+generator.step_wise_trajectories=true} \
+    ${ENABLE_CONTEXT_TOOLS:+generator.inject_context_status=true} \
+    trainer.algorithm.advantage_estimator="grpo" \
+    trainer.policy.model.path="Qwen/Qwen3-8B" \
+    ++trainer.rope_scaling.rope_type=yarn \
+    ++trainer.rope_scaling.factor=2.0 \
+    ++trainer.rope_scaling.original_max_position_embeddings=32768 \
+    trainer.placement.colocate_all=true \
+    trainer.strategy=fsdp2 \
+    trainer.placement.policy_num_gpus_per_node=$TOTAL_GPUS \
+    trainer.placement.ref_num_gpus_per_node=$TOTAL_GPUS \
+    generator.num_inference_engines=$TOTAL_GPUS \
+    generator.inference_engine_tensor_parallel_size=1 \
+    trainer.epochs=${NUM_EPOCHS} \
+    trainer.eval_batch_size=32 \
+    trainer.eval_before_train=true \
+    trainer.eval_interval=10 \
+    trainer.update_epochs_per_batch=1 \
+    trainer.train_batch_size=32 \
+    trainer.use_hybrid_env_sampling=true \
+    trainer.min_samples_per_env=1 \
+    trainer.policy_mini_batch_size=32 \
+    trainer.micro_forward_batch_size_per_gpu=2 \
+    trainer.micro_train_batch_size_per_gpu=2 \
+    trainer.ckpt_interval=10 \
+    trainer.max_prompt_length=512 \
+    generator.max_input_length=$MAX_INPUT_LENGTH \
+    generator.sampling_params.max_generate_length=$MAX_GENERATE_LENGTH \
+    generator.sampling_params.temperature=0.9 \
+    generator.sampling_params.top_p=0.95 \
+    generator.sampling_params.stop='["</tool_call>"]' \
+    generator.eval_sampling_params.stop='["</tool_call>"]' \
+    trainer.policy.optimizer_config.lr=1.0e-6 \
+    trainer.algorithm.use_kl_loss=true \
+    generator.max_turns=$MAX_TURNS \
+    generator.backend=$INFERENCE_BACKEND \
+    generator.run_engines_locally=true \
+    generator.weight_sync_backend=nccl \
+    generator.async_engine=true \
+    generator.batched=false \
+    generator.use_conversation_multi_turn=true \
+    generator.n_samples_per_prompt=4 \
+    generator.eval_n_samples_per_prompt=3 \
+    generator.gpu_memory_utilization=0.7 \
+    trainer.logger="$LOGGER" \
+    trainer.project_name="fleet-jira-outlook-grpo" \
+    trainer.run_name="jira_outlook_${MODALITY}_${RUN_ID:-$(head -c 4 /dev/urandom | xxd -p)}" \
+    trainer.resume_mode=latest \
+    trainer.ckpt_path="$HOME/ckpts/jira_outlook_${MODALITY}" \
+    trainer.dump_data_batch=true
