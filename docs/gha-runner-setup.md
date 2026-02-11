@@ -57,3 +57,16 @@ aws ec2 describe-instance-status --instance-ids i-04a15158610df980f i-0f80c70329
 ```bash
 sudo systemctl restart actions.runner.fleet-ai-SkyRL.*
 ```
+
+**SkyPilot or RunPod not found (`sky: command not found` or `runpod: command not found`):**
+
+The setup script installs tools to `~/.local/bin/` and creates symlinks at `/usr/local/bin/`. If symlinks are missing, the GHA service can't find them:
+
+```bash
+# Check if symlinks exist
+ls -la /usr/local/bin/sky /usr/local/bin/runpod
+
+# If missing, create them (via EC2 Instance Connect):
+aws ec2-instance-connect send-ssh-public-key --instance-id <INSTANCE_ID> --instance-os-user ubuntu --ssh-public-key file://~/.ssh/<YOUR_KEY>.pub
+ssh -i ~/.ssh/<YOUR_KEY> ubuntu@<IP> "sudo ln -sf /home/ubuntu/.local/bin/sky /usr/local/bin/sky && sudo ln -sf /home/ubuntu/.local/bin/runpod /usr/local/bin/runpod && sky --version"
+```
