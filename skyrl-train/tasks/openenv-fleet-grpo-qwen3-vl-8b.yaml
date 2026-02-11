@@ -181,7 +181,7 @@ run: |
     generator.eval_n_samples_per_prompt=3 \
     generator.gpu_memory_utilization=0.7 \
     trainer.logger="$LOGGER" \
-    trainer.project_name="fleet-task-grpo" \
+    trainer.project_name="fleet-browser-use-grpo" \
     trainer.run_name="fleet_vl_${MODALITY}_${RUN_ID:-$(head -c 4 /dev/urandom | xxd -p)}" \
     trainer.resume_mode=latest \
     trainer.ckpt_path="$HOME/ckpts/fleet_vl_${MODALITY}" \
