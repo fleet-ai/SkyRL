@@ -3,13 +3,6 @@ name: "Fleet Task Training (SkyPilot)"
 on:
   workflow_dispatch:
     inputs:
-      modality:
-        description: "Task modality"
-        type: choice
-        options:
-          - tool_use
-          - computer_use
-        default: tool_use
       env_key:
         description: "Fleet environment filter (empty=all, or: github, booking, reddit, etc.)"
         type: string
@@ -50,7 +43,7 @@ concurrency:
 
 jobs:
   train:
-    name: "Train ${{ inputs.modality }} (by ${{ github.actor }})"
+    name: "Train ${{ inputs.task_name }} (by ${{ github.actor }})"
     runs-on: [self-hosted, fleet-runner]
     timeout-minutes: 4320  # 72 hours max
 
@@ -88,11 +81,11 @@ jobs:
         run: |
           TIMESTAMP=$(date -u +"%Y%m%d-%H%M")
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          CLUSTER_NAME="fleet-${{ inputs.modality }}-${SHORT_SHA}-${TIMESTAMP}"
+          CLUSTER_NAME="fleet-${SHORT_SHA}-${TIMESTAMP}"
           CLUSTER_NAME=$(echo "$CLUSTER_NAME" | tr '_' '-' | tr '[:upper:]' '[:lower:]')
           echo "name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
           RUN_ID=$(head -c 4 /dev/urandom | xxd -p)
-          echo "wandb_run_name=fleet_${{ inputs.modality }}_${RUN_ID}" >> $GITHUB_OUTPUT
+          echo "wandb_run_name=fleet_${RUN_ID}" >> $GITHUB_OUTPUT
 
       - name: Notify Slack - Starting
         id: slack_start
@@ -109,7 +102,6 @@ jobs:
                 { "type": "section", "fields": [
                   { "type": "mrkdwn", "text": "*Cluster:*\n`${{ steps.cluster.outputs.name }}`" },
                   { "type": "mrkdwn", "text": "*Task:*\n`${{ inputs.task_name }}`" },
-                  { "type": "mrkdwn", "text": "*Modality:*\n`${{ inputs.modality }}`" },
                   { "type": "mrkdwn", "text": "*WandB:*\n`${{ steps.cluster.outputs.wandb_run_name }}`" }
                 ]},
                 { "type": "context", "elements": [
@@ -121,15 +113,14 @@ jobs:
       - name: Launch Training Cluster
         id: launch
         run: |
-          MODALITY="${{ inputs.modality }}"
-          if [ "$MODALITY" == "tool_use" ]; then WANDB_KEY="$WANDB_KEY_TOOL_USE"; else WANDB_KEY="$WANDB_KEY_COMPUTER_USE"; fi
+          # Use tool_use WANDB key (all current tasks are tool_use; MODALITY is defined in task YAML)
+          WANDB_KEY="$WANDB_KEY_TOOL_USE"
           [ -z "$WANDB_KEY" ] && echo "ERROR: WANDB key not set" && exit 1
 
           LAUNCH_CMD="sky launch skyrl-train/tasks/${{ inputs.task_name }}.yaml"
           LAUNCH_CMD="$LAUNCH_CMD --cluster ${{ steps.cluster.outputs.name }}"
           LAUNCH_CMD="$LAUNCH_CMD --env WANDB_API_KEY=$WANDB_KEY"
           LAUNCH_CMD="$LAUNCH_CMD --env FLEET_API_KEY=${{ secrets.FLEET_API_KEY }}"
-          LAUNCH_CMD="$LAUNCH_CMD --env MODALITY=$MODALITY"
           LAUNCH_CMD="$LAUNCH_CMD --env DATA_VERSION=${{ inputs.data_version }}"
           LAUNCH_CMD="$LAUNCH_CMD --env AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}"
           LAUNCH_CMD="$LAUNCH_CMD --env AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}"
