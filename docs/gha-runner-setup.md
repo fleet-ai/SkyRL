@@ -22,6 +22,21 @@ Self-hosted runners for long training jobs (24+ hours) that exceed GitHub's 6-ho
 - **Health check:** Cron every 5 min detects GitHub disconnection
 - **Central monitoring:** `runner-health.yaml` checks all runners every 15 min, alerts Slack
 
+## Installed Cloud Providers
+
+The setup script installs SkyPilot with cloud plugins and additional CLIs:
+
+| Provider | SkyPilot Plugin | Separate CLI | Config Location |
+|----------|-----------------|--------------|-----------------|
+| Lambda | ✓ | - | `~/.lambda_cloud/lambda_keys` |
+| RunPod | ✓ | `runpod` | `~/.runpod/config.toml` |
+| Vast | ✓ | - | `~/.config/vastai/vast_api_key` |
+| Nebius | ✓ | - | `~/.nebius/credentials.json` |
+| AWS | ✓ | `aws` | `~/.aws/credentials` |
+| Prime Intellect | - | `prime` | via `prime config` |
+
+Credentials are configured during workflow runs from GitHub secrets.
+
 ## Add a Runner
 
 ```bash
