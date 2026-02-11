@@ -76,8 +76,9 @@ pip3 install --user prime 2>/dev/null || true
 export PATH="$HOME/.local/bin:$PATH"
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 
-# Create symlink so GHA runner service can find sky
+# Create symlinks so GHA runner service can find sky and runpod
 sudo ln -sf "$HOME/.local/bin/sky" /usr/local/bin/sky
+sudo ln -sf "$HOME/.local/bin/runpod" /usr/local/bin/runpod
 sky --version
 
 # 3. Configure cloud credentials
