@@ -298,7 +298,23 @@ If the task is complete, provide your answer then say <done>. Otherwise, make a 
 
         # Build conversation with system prompt
         system_message = {"role": "system", "content": system_content}
-        user_message = {"role": "user", "content": task_prompt}
+
+        # For computer_use with initial screenshot, create multimodal user message
+        # OpenEnv returns initial_screenshot for VL models to see the initial screen state
+        initial_screenshot = obs.get("initial_screenshot")
+        if initial_screenshot and isinstance(initial_screenshot, list):
+            # initial_screenshot is in OpenAI-compatible format:
+            # [{"type": "text", "text": "..."}, {"type": "image_url", "image_url": {"url": "data:..."}}]
+            # Build multimodal content with task prompt + screenshot
+            user_content = [{"type": "text", "text": task_prompt}]
+            for item in initial_screenshot:
+                if isinstance(item, dict) and item.get("type") == "image_url":
+                    user_content.append(item)
+            user_message = {"role": "user", "content": user_content}
+            logger.info(f"Task {self.task_key}: including initial screenshot in prompt")
+        else:
+            user_message = {"role": "user", "content": task_prompt}
+
         self.chat_history = [system_message, user_message]
 
         metadata = {
@@ -399,10 +415,26 @@ If the task is complete, provide your answer then say <done>. Otherwise, make a 
             )
 
         # Build response observation
+        # For computer_use, tool_result can be multimodal (OpenAI-compatible format with screenshots)
+        obs_content: Any = None
         if error:
             obs_content = f"Error: {error}"
         elif tool_result:
-            if isinstance(tool_result, dict):
+            # Check if tool_result is multimodal (list with image_url items)
+            if isinstance(tool_result, list) and any(
+                isinstance(item, dict) and item.get("type") == "image_url" for item in tool_result
+            ):
+                # Multimodal result - build multimodal content
+                obs_content = []
+                for item in tool_result:
+                    if isinstance(item, dict):
+                        if item.get("type") == "text":
+                            obs_content.append({"type": "text", "text": f"Tool result:\n{item.get('text', '')}"})
+                        elif item.get("type") == "image_url":
+                            obs_content.append(item)
+                    else:
+                        obs_content.append({"type": "text", "text": f"Tool result:\n{item}"})
+            elif isinstance(tool_result, dict):
                 obs_content = f"Tool result:\n{json.dumps(tool_result, indent=2)}"
             else:
                 obs_content = f"Tool result:\n{tool_result}"
