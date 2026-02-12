@@ -43,13 +43,13 @@ from datasets import Dataset
 # Held-out environments for eval only (not used in train)
 HELD_OUT_ENVS = {
     "tool_use": [],  # v0.3: all envs split normally (outlook now included in train)
-    "computer_use": ["instacart"],
+    "computer_use": [],
 }
 
 # Excluded environments (removed from both train and eval)
 # v0.3.6: google-maps excluded due to broken MCP server (502 errors, "database is locked")
 EXCLUDED_ENVS = {
-    "tool_use": ["google-maps"],
+    "tool_use": [],
     "computer_use": [],
 }
 
