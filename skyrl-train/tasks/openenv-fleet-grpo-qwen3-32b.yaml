@@ -7,7 +7,7 @@
 # Model: Qwen/Qwen3-32B (32B parameters)
 # GPUs: B200:4 (192GB HBM3e per GPU = 768GB total)
 #
-# v0.4.0: Initial 32B config with google-maps excluded from dataset
+# v0.3.6: Qwen3-32B with extended context (65K input)
 
 name: fleet-task-grpo-qwen3-32b
 
@@ -46,8 +46,8 @@ envs:
   ENV_KEY: ""
   MODALITY: "tool_use"
   MAX_TURNS: 50
-  # Context: Qwen3-32B has 128K context, use YaRN to extend
-  MAX_INPUT_LENGTH: 48000
+  # Context: Qwen3-32B supports 82K with YaRN factor 2.0 (40960 × 2)
+  MAX_INPUT_LENGTH: 65000
   MAX_GENERATE_LENGTH: 8192
   NUM_EPOCHS: 20
   RUN_ID: ""
