@@ -36,7 +36,7 @@ num_nodes: 1
 
 workdir:
   url: https://github.com/fleet-ai/SkyRL.git
-  ref: main
+  ref: feat/vl-multimodal-support
 
 envs:
   WANDB_API_KEY: ""
@@ -58,6 +58,7 @@ envs:
   S3_DATASET_BUCKET: "fleet-internal-datasets"
   S3_CHECKPOINT_BUCKET: "skyrl-checkpoints"
   S3_TRAJECTORY_BUCKET: "skyrl-trajectories"
+  DATA_VERSION: "v0.3"
 
 setup: |
   set -euo pipefail
