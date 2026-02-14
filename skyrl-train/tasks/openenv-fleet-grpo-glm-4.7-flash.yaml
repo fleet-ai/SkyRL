@@ -156,8 +156,12 @@ run: |
 
   # Run GRPO training with GLM-4.7-Flash
   # MoE model: 30B total, 3B active - efficient training
-  # Note: Using vLLM nightly from setup, not pyproject.toml extra
+  # Note: GLM-4.7-Flash requires vLLM nightly + transformers from source
   uv run --isolated \
+    --index-url "https://pypi.org/simple" \
+    --extra-index-url "https://wheels.vllm.ai/nightly" \
+    --with "vllm" \
+    --with "git+https://github.com/huggingface/transformers.git" \
     --with "litellm>=1.75.5" \
     --with "git+https://github.com/fleet-ai/OpenEnv.git@deniz/fleet_client" \
     --with "fleet-python" \
