@@ -47,6 +47,7 @@
 # v0.1.25: Also remove 'uv run' from setup PREPARE_CMD (same issue)
 # v0.1.26: Install missing deps (datasets, ray, etc.) since --no-deps skips them
 # v0.1.27: Remove 'ray stop' (kills SkyPilot's Ray cluster that manages the job)
+# v0.1.28: Install vLLM LAST instead of --no-deps (simpler, installs all deps correctly)
 
 name: fleet-task-grpo-glm-4.7-flash
 
@@ -120,29 +121,26 @@ setup: |
   source .venv/bin/activate
 
   # GLM-4.7-Flash requires specific install order:
-  # 1. vLLM FIRST - brings PyTorch 2.10.0 (compiled against this version)
-  # 2. Base deps via pip (NOT uv sync - it downgrades PyTorch)
-  # 3. transformers from source - overrides vLLM's 4.57.x downgrade
+  # 1. Install all deps normally (may install wrong torch version)
+  # 2. Install transformers from source (for glm4_moe_lite architecture)
+  # 3. Install vLLM LAST (reinstalls correct PyTorch 2.10.0)
   #
-  # Install vLLM FIRST using HuggingFace model card command:
-  # https://huggingface.co/zai-org/GLM-4.7-Flash
-  uv pip install vllm --pre --index-url https://pypi.org/simple --extra-index-url https://wheels.vllm.ai/nightly
-
-  # Install package without deps (--no-deps prevents PyTorch downgrade)
-  uv pip install -e . --no-deps
+  # Install package deps normally
+  uv pip install -e .
 
   # transformers from source for glm4_moe_lite architecture
   uv pip install git+https://github.com/huggingface/transformers.git
 
-  # Uninstall torchvision (vLLM installs it but text models don't need it)
-  uv pip uninstall torchvision || true
-
-  # Core deps (--no-deps skipped these)
-  uv pip install datasets==4.0.0 ray==2.51.1 hydra-core==1.3.2 accelerate peft polars pyarrow
-
-  # All runtime deps (previously in --with flags)
+  # Runtime deps
   uv pip install "litellm>=1.75.5" boto3 wandb awscli
   uv pip install "git+https://github.com/fleet-ai/OpenEnv.git@deniz/fleet_client" fleet-python
+
+  # Install vLLM LAST - this reinstalls PyTorch 2.10.0 (the version vLLM was compiled against)
+  # https://huggingface.co/zai-org/GLM-4.7-Flash
+  uv pip install vllm --pre --index-url https://pypi.org/simple --extra-index-url https://wheels.vllm.ai/nightly
+
+  # Uninstall torchvision (vLLM installs it but text models don't need it)
+  uv pip uninstall torchvision || true
 
   # Diagnostics: print versions and test vLLM import
   echo "=== DIAGNOSTIC: Package versions ==="
