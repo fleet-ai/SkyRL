@@ -50,7 +50,7 @@
 # v0.1.28: Add ALL deps from pyproject.toml (--no-deps skips them all)
 # v0.1.29: Install skyrl-gym from local path (not PyPI - different package)
 # v0.1.30: Use +generator.reasoning_parser (add new key to Hydra config)
-# v0.1.31: DEBUG flash-attn build - check nvcc, CUDA, pyproject.toml settings
+# v0.1.31: Install CUDA toolkit (nvcc) if missing, then build flash-attn
 
 name: fleet-task-grpo-glm-4.7-flash
 
@@ -137,22 +137,32 @@ setup: |
   # https://huggingface.co/zai-org/GLM-4.7-Flash
   uv pip install vllm --pre --index-url https://pypi.org/simple --extra-index-url https://wheels.vllm.ai/nightly
 
-  # Step 2: Install flash-attn - DEBUG to understand build behavior
-  echo "=== DEBUG: CUDA toolkit check ==="
-  which nvcc || echo "nvcc not found in PATH"
-  nvcc --version || echo "nvcc --version failed"
-  echo "CUDA_HOME=$CUDA_HOME"
-  echo "=== DEBUG: Check if flash-attn wheel exists for our torch version ==="
-  python3 -c "import torch; print(f'torch version: {torch.__version__}')"
-  python3 -c "import torch; print(f'CUDA version: {torch.version.cuda}')"
-  echo "=== DEBUG: Check pyproject.toml build variables ==="
-  cat pyproject.toml | grep -A5 "extra-build-variables" || echo "No extra-build-variables found"
-  echo "=== DEBUG: Try pip install with verbose to see what happens ==="
-  # Use pip directly (not uv) to bypass uv's pyproject.toml settings
-  pip install flash-attn --no-build-isolation -v 2>&1 | tail -100 || echo "pip install failed, trying uv"
-  echo "=== DEBUG: Check if flash_attn_2_cuda was built ==="
-  python3 -c "import flash_attn; print(dir(flash_attn))" || echo "flash_attn import failed"
-  python3 -c "import flash_attn_2_cuda; print('flash_attn_2_cuda exists')" || echo "flash_attn_2_cuda module NOT found"
+  # Step 2: Install flash-attn
+  # Check if nvcc is available - if not, we need to install CUDA toolkit
+  echo "=== Checking CUDA toolkit ==="
+  if ! which nvcc > /dev/null 2>&1; then
+    echo "nvcc not found - installing CUDA toolkit..."
+    # RunPod images have CUDA runtime but not development tools
+    # Install cuda-toolkit to get nvcc
+    apt-get update && apt-get install -y cuda-toolkit-12-8 || apt-get install -y nvidia-cuda-toolkit || echo "Could not install CUDA toolkit"
+  fi
+  which nvcc && nvcc --version || echo "WARNING: nvcc still not available"
+  echo "CUDA_HOME=${CUDA_HOME:-not set}"
+
+  # Show torch CUDA info
+  python3 -c "import torch; print(f'torch: {torch.__version__}, CUDA: {torch.version.cuda}')"
+
+  # Install flash-attn - needs nvcc for CUDA kernels
+  echo "=== Installing flash-attn (this may take 20+ minutes if building from source) ==="
+  MAX_JOBS=4 pip install flash-attn --no-build-isolation 2>&1 | tee /tmp/flash_attn_install.log | tail -50
+
+  # Verify flash_attn_2_cuda was built
+  echo "=== Verifying flash-attn CUDA module ==="
+  python3 -c "import flash_attn_2_cuda; print('SUCCESS: flash_attn_2_cuda module found')" || {
+    echo "FAILED: flash_attn_2_cuda not found. Checking install log..."
+    grep -i "error\|failed\|cuda" /tmp/flash_attn_install.log | tail -30
+    exit 1
+  }
 
   # Step 3: Install transformers from source for glm4_moe_lite architecture
   uv pip install git+https://github.com/huggingface/transformers.git
