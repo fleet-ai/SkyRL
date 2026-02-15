@@ -125,7 +125,9 @@ setup: |
   # Install vLLM FIRST - it has pinned deps (PyTorch 2.10.0, transformers 4.57.x)
   # Then install transformers from source AFTER to override vLLM's downgrade
   # Finally uninstall torchvision (vLLM installs it but text models don't need it)
-  uv pip install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly --index-strategy unsafe-best-match
+  # Pin to specific nightly version that has x86 wheels and works with transformers 5.x
+  # Using --index-url (not --extra-index-url) to prevent fallback to stable vLLM
+  uv pip install "vllm>=0.16.0rc2" --pre --index-url https://wheels.vllm.ai/nightly --extra-index-url https://pypi.org/simple
   uv pip install git+https://github.com/huggingface/transformers.git
   uv pip uninstall torchvision || true
 
