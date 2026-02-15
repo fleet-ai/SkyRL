@@ -35,6 +35,7 @@
 #          --index-url https://pypi.org/simple --extra-index-url https://wheels.vllm.ai/nightly
 # v0.1.16: Enable preserved thinking for multi-turn tool use
 #          reasoning_parser=glm45, tool_call_parser=glm47 (from HF model card)
+# v0.1.17: Add --upgrade flag to vLLM install to upgrade PyTorch deps
 
 name: fleet-task-grpo-glm-4.7-flash
 
@@ -134,7 +135,7 @@ setup: |
   # https://huggingface.co/zai-org/GLM-4.7-Flash
   # Then install transformers from source AFTER to override vLLM's downgrade
   # Finally uninstall torchvision (vLLM installs it but text models don't need it)
-  uv pip install vllm --pre --index-url https://pypi.org/simple --extra-index-url https://wheels.vllm.ai/nightly
+  uv pip install --upgrade vllm --pre --index-url https://pypi.org/simple --extra-index-url https://wheels.vllm.ai/nightly
   uv pip install git+https://github.com/huggingface/transformers.git
   uv pip uninstall torchvision || true
 
