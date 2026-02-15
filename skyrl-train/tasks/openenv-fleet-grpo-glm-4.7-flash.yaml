@@ -95,7 +95,8 @@ num_nodes: 1
 
 workdir:
   url: https://github.com/fleet-ai/SkyRL.git
-  ref: main
+  # TODO: Change back to main after PR #223 is merged
+  ref: deniz/glm-flashattn-python-utils
 
 envs:
   WANDB_API_KEY: ""
