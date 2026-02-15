@@ -29,6 +29,7 @@
 #          Installing transformers after vLLM overrides this downgrade
 # v0.1.13: Install vLLM from source (git+) instead of nightly wheels
 #          Nightly wheels have availability issues, source build is more reliable
+# v0.1.14: Set CUDA_HOME before building vLLM from source
 
 name: fleet-task-grpo-glm-4.7-flash
 
@@ -128,6 +129,20 @@ setup: |
   # Nightly wheels have availability issues, building from source is more reliable
   # Then install transformers from source AFTER to override vLLM's downgrade
   # Finally uninstall torchvision (vLLM installs it but text models don't need it)
+
+  # Set CUDA_HOME for vLLM build (required for building from source)
+  export CUDA_HOME=${CUDA_HOME:-/usr/local/cuda}
+  if [ ! -d "$CUDA_HOME" ]; then
+    # Try to find CUDA installation
+    for cuda_path in /usr/local/cuda-12.* /usr/local/cuda; do
+      if [ -d "$cuda_path" ]; then
+        export CUDA_HOME="$cuda_path"
+        break
+      fi
+    done
+  fi
+  echo "Using CUDA_HOME=$CUDA_HOME"
+
   uv pip install git+https://github.com/vllm-project/vllm.git
   uv pip install git+https://github.com/huggingface/transformers.git
   uv pip uninstall torchvision || true
