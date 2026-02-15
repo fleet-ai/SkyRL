@@ -163,20 +163,7 @@ setup: |
   # Step 2b: Create mock flash_attn_2_cuda module
   # flash_attn's __init__.py imports flash_attn_2_cuda which doesn't exist without CUDA build
   # We create a mock so the package can import (we only need bert_padding utilities)
-  SITE_PACKAGES=$(python3 -c "import site; print(site.getsitepackages()[0])")
-  cat > "$SITE_PACKAGES/flash_attn_2_cuda.py" << 'MOCK_EOF'
-# Mock flash_attn_2_cuda - CUDA kernels not built (using FLASHINFER for vLLM)
-# This allows flash_attn to import so we can use flash_attn.bert_padding utilities
-
-def _not_implemented(*args, **kwargs):
-    raise NotImplementedError("flash_attn CUDA not available - using FLASHINFER backend for vLLM")
-
-# Stub out the CUDA functions that flash_attn_interface.py expects
-flash_attn_func = _not_implemented
-flash_attn_varlen_func = _not_implemented
-flash_attn_with_kvcache = _not_implemented
-MOCK_EOF
-  echo "Created mock flash_attn_2_cuda module at $SITE_PACKAGES/flash_attn_2_cuda.py"
+  python3 -c "import site; p=site.getsitepackages()[0]+'/flash_attn_2_cuda.py'; open(p,'w').write('def _ni(*a,**k): raise NotImplementedError(\"flash_attn CUDA not available\")\\nfwd=bwd=varlen_fwd=varlen_bwd=flash_attn_func=flash_attn_varlen_func=flash_attn_with_kvcache=_ni\\n'); print(f'Created mock at {p}')"
 
   # Step 3: Install transformers from source for glm4_moe_lite architecture
   uv pip install git+https://github.com/huggingface/transformers.git
