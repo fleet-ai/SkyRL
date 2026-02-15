@@ -312,8 +312,8 @@ def pad_input(hidden_states_unpad, indices, batch, seqlen):
         f.write(bert_padding_code)
 
     print(f"Created flash_attn stub package at {pkg_dir}")
-    print(f"  - bert_padding: pad_input, unpad_input")
-    print(f"  - ops.triton.rotary: apply_rotary (pure PyTorch)")
+    print("  - bert_padding: pad_input, unpad_input")
+    print("  - ops.triton.rotary: apply_rotary (pure PyTorch)")
 
 
 if __name__ == "__main__":
