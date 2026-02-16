@@ -124,6 +124,9 @@
 #          - colocate_all=true + nccl selects CudaIpcTransferStrategy → group_by_module=True
 #          - MoE unpacking was only in the simple path, not yield_module_grouped_chunks
 #          - Moved _unpack_moe_experts to weight_extractor_utils.py for both paths
+# v0.1.49: Fix BatchEncoding compatibility with transformers 5.x
+#          - apply_chat_template(tokenize=True) returns BatchEncoding, not list
+#          - Added apply_chat_template_ids() wrapper to extract input_ids
 
 name: fleet-task-grpo-glm-4.7-flash
 
