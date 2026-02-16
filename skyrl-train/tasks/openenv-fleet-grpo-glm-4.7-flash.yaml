@@ -107,6 +107,10 @@
 #          - GLM-4 model._no_split_modules returns a set, not a list
 #          - fsdp_utils.py:369 tried [0] subscript on a set → TypeError
 #          - Convert set to list before assertion check
+# v0.1.45: Fix FSDP2 state dict loading for non-DTensor entries
+#          - GLM-4 MoE has buffers/params not wrapped by fully_shard
+#          - fsdp2_load_full_state_dict assumed all state dict entries are DTensors
+#          - Skip DTensor-specific sharding for regular Tensor entries
 
 name: fleet-task-grpo-glm-4.7-flash
 

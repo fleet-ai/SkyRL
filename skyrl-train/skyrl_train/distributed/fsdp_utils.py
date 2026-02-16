@@ -246,7 +246,7 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_sd: dict, cpu_offloa
         full_sd (`dict`): The full state dict to load, can be only on rank 0
     """
     import torch.distributed as dist
-    from torch.distributed.tensor import distribute_tensor
+    from torch.distributed.tensor import DTensor, distribute_tensor
 
     # Model was previously copied to meta device
     meta_sharded_sd = model.state_dict()
@@ -281,6 +281,11 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_sd: dict, cpu_offloa
     if dist.get_rank() == 0:
         for (param_name, full_param), sharded_param in zip(full_sd.items(), meta_sharded_sd.values()):
             full_param = full_param.detach().cuda()
+            if not isinstance(sharded_param, DTensor):
+                # Non-sharded param (buffer or unmanaged param) — broadcast and keep as regular tensor
+                dist.broadcast(full_param, src=0)
+                sharded_sd[param_name] = full_param
+                continue
             mesh = sharded_param.device_mesh
             dist.broadcast(full_param, src=0)
             sharded_tensor = distribute_tensor(full_param, mesh, sharded_param.placements)
@@ -295,6 +300,11 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_sd: dict, cpu_offloa
     else:
         for param_name, sharded_param in meta_sharded_sd.items():
             full_tensor = torch.empty(sharded_param.size(), device="cuda", dtype=sharded_param.dtype)
+            if not isinstance(sharded_param, DTensor):
+                # Non-sharded param (buffer or unmanaged param) — broadcast and keep as regular tensor
+                dist.broadcast(full_tensor, src=0)
+                sharded_sd[param_name] = full_tensor
+                continue
             mesh = sharded_param.device_mesh
             dist.broadcast(full_tensor, src=0)
             sharded_tensor = distribute_tensor(full_tensor, mesh, sharded_param.placements)
