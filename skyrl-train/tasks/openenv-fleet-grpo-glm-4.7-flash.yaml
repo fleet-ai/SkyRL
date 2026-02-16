@@ -103,6 +103,10 @@
 #          - Both big_modeling.py and utils/modeling.py pass __dict__ to Parameter.__new__()
 #          - transformers 5.x sets _is_hf_initialized on Parameter objects (not just modules)
 #          - Patch filters out _is_hf_initialized before passing kwargs to constructor
+# v0.1.44: Fix FSDP2 set subscript error for GLM-4 _no_split_modules
+#          - GLM-4 model._no_split_modules returns a set, not a list
+#          - fsdp_utils.py:369 tried [0] subscript on a set → TypeError
+#          - Convert set to list before assertion check
 
 name: fleet-task-grpo-glm-4.7-flash
 
