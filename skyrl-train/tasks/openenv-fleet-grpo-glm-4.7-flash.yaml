@@ -116,6 +116,10 @@
 #          - vLLM nightly v1 engine uses collective_rpc → pidfd_getfd for CUDA IPC
 #          - VLLM_USE_V1=0 falls back to v0 engine with direct weight updates
 #          - Also removed PYTORCH_ALLOC_CONF=expandable_segments (triggers pidfd)
+# v0.1.47: Fix MoE weight naming mismatch between HF and vLLM
+#          - HF packs experts as 3D tensors: experts.gate_up_proj [N, 2*I, H]
+#          - vLLM expects checkpoint format: experts.{i}.gate_proj.weight [I, H]
+#          - Added _unpack_moe_experts() to FSDPWeightExtractor to convert formats
 
 name: fleet-task-grpo-glm-4.7-flash
 

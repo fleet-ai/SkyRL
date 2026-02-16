@@ -41,6 +41,49 @@ class FSDPWeightExtractor(WeightExtractor):
         self.group_by_module = group_by_module
         self.batch_size_threshold_gb = batch_size_threshold_gb
 
+    def _unpack_moe_experts(self, name, tensor, dtype):
+        """Unpack HF-style packed MoE expert tensors into per-expert checkpoint format.
+
+        HF stores MoE experts as packed 3D tensors:
+          experts.gate_up_proj [num_experts, 2*intermediate, hidden]
+          experts.down_proj [num_experts, hidden, intermediate]
+        vLLM load_weights() expects per-expert checkpoint format:
+          experts.{i}.gate_proj.weight [intermediate, hidden]
+          experts.{i}.up_proj.weight [intermediate, hidden]
+          experts.{i}.down_proj.weight [hidden, intermediate]
+
+        Returns a WeightChunk with all per-expert tensors, or None if not an MoE param.
+        """
+        if name.endswith(".experts.gate_up_proj"):
+            prefix = name.rsplit(".gate_up_proj", 1)[0]
+            num_experts = tensor.shape[0]
+            intermediate = tensor.shape[1] // 2
+            gate = tensor[:, :intermediate, :]
+            up = tensor[:, intermediate:, :]
+            names, dtypes_list, shapes, tensors = [], [], [], []
+            for i in range(num_experts):
+                for proj_name, proj_tensor in [("gate_proj", gate[i]), ("up_proj", up[i])]:
+                    t = proj_tensor.contiguous()
+                    names.append(f"{prefix}.{i}.{proj_name}.weight")
+                    dtypes_list.append(str(dtype))
+                    shapes.append(list(t.shape))
+                    tensors.append(t)
+            return WeightChunk(names=names, dtypes=dtypes_list, shapes=shapes, tensors=tensors)
+
+        if name.endswith(".experts.down_proj"):
+            prefix = name.rsplit(".down_proj", 1)[0]
+            num_experts = tensor.shape[0]
+            names, dtypes_list, shapes, tensors = [], [], [], []
+            for i in range(num_experts):
+                t = tensor[i].contiguous()
+                names.append(f"{prefix}.{i}.down_proj.weight")
+                dtypes_list.append(str(dtype))
+                shapes.append(list(t.shape))
+                tensors.append(t)
+            return WeightChunk(names=names, dtypes=dtypes_list, shapes=shapes, tensors=tensors)
+
+        return None
+
     def extract_weights(self, dtype: torch.dtype):
         """Extract weights from FSDP model.
 
@@ -65,6 +108,13 @@ class FSDPWeightExtractor(WeightExtractor):
             # Simple path: yield one chunk per parameter
             for name, param in params.items():
                 tensor = self._gather_tensor(param).to(dtype).detach().contiguous()
+
+                # Handle MoE packed expert tensors (HF format → checkpoint format)
+                moe_chunk = self._unpack_moe_experts(name, tensor, dtype)
+                if moe_chunk is not None:
+                    yield moe_chunk
+                    continue
+
                 yield WeightChunk(
                     names=[name],
                     dtypes=[str(dtype)],
