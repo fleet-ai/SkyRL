@@ -127,6 +127,10 @@
 # v0.1.49: Fix BatchEncoding compatibility with transformers 5.x
 #          - apply_chat_template(tokenize=True) returns BatchEncoding, not list
 #          - Added apply_chat_template_ids() wrapper to extract input_ids
+# v0.1.50: Fix OOM during backward pass
+#          - Re-add PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True (was wrongly
+#            removed — pidfd was from vLLM v1, not expandable_segments)
+#          - B200 only (192 GiB vs H200's 141 GiB — needed for 48K context backward)
 
 name: fleet-task-grpo-glm-4.7-flash
 
@@ -134,19 +138,11 @@ resources:
   disk_size: 300
   ports: 6479
   any_of:
-    # B200 options
     - accelerators: B200:8
       cloud: lambda
       memory: 750+
     - accelerators: B200:8
       cloud: runpod
-      memory: 750+
-    # H200 options (use H200-SXM for RunPod/Vast)
-    - accelerators: H200-SXM:8
-      cloud: runpod
-      memory: 750+
-    - accelerators: H200-SXM:8
-      cloud: vast
       memory: 750+
 
 num_nodes: 1
@@ -322,7 +318,10 @@ run: |
   mkdir -p "$TMP_DIR"
   export TMPDIR="$TMP_DIR"
 
-  # NOTE: expandable_segments removed — triggers pidfd_getfd in CUDA IPC on RunPod
+  # Re-added: expandable_segments was removed thinking it caused pidfd_getfd, but
+  # that was actually vLLM v1 engine (fixed by VLLM_USE_V1=0). expandable_segments
+  # reduces memory fragmentation during training.
+  export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
   TASKS_FILE="$HOME/data/fleet/tasks_${MODALITY}.json"
   DATA_DIR="$HOME/data/fleet/${MODALITY}"
