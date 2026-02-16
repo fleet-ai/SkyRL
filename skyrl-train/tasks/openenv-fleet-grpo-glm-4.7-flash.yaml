@@ -88,6 +88,13 @@
 #          - use_flash_attention_2=false doesn't work - model config.json overrides it
 #          - Set attn_implementation=sdpa via model_config_kwargs
 #          - This overrides the HF config before model instantiation
+# v0.1.41: Fix 3 SDPA attention bugs preventing training launch
+#          - Bug 1: model_config_kwargs path was wrong (trainer.policy.model.model_config_kwargs
+#            vs trainer.policy.model_config_kwargs) - value never reached fsdp_worker
+#          - Bug 2: flash_attn=true default was never overridden - model_wrapper still
+#            set attn_implementation="flash_attention_2" regardless of model_config_kwargs
+#          - Bug 3: use_sample_packing=true default asserts flash_attention_2 in model_wrapper
+#          - Also moved reasoning/tool parsers to engine_init_kwargs for correctness
 
 name: fleet-task-grpo-glm-4.7-flash
 
@@ -292,7 +299,9 @@ run: |
     environment.skyrl_gym.fleet_task.tasks_file="$TASKS_FILE" \
     trainer.algorithm.advantage_estimator="grpo" \
     trainer.policy.model.path="zai-org/GLM-4.7-Flash" \
-    +trainer.policy.model.model_config_kwargs.attn_implementation=sdpa \
+    trainer.policy.model_config_kwargs.attn_implementation=sdpa \
+    trainer.flash_attn=false \
+    trainer.use_sample_packing=false \
     trainer.placement.colocate_all=true \
     trainer.strategy=fsdp2 \
     trainer.placement.policy_num_gpus_per_node=$TOTAL_GPUS \
@@ -331,8 +340,8 @@ run: |
     generator.n_samples_per_prompt=4 \
     generator.eval_n_samples_per_prompt=3 \
     generator.gpu_memory_utilization=0.7 \
-    +generator.reasoning_parser=glm45 \
-    +generator.tool_call_parser=glm47 \
+    +generator.engine_init_kwargs.reasoning_parser=glm45 \
+    +generator.engine_init_kwargs.tool_call_parser=glm47 \
     trainer.logger="$LOGGER" \
     trainer.project_name="fleet-task-grpo" \
     trainer.run_name="fleet_${MODALITY}_glm47flash_${RUN_ID:-$(head -c 4 /dev/urandom | xxd -p)}" \
