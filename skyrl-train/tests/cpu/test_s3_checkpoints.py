@@ -104,129 +104,127 @@ def test_download_skips_when_local_checkpoint_exists():
         assert result is False
 
 
-@patch("boto3.client")
-def test_download_finds_latest_checkpoint(mock_boto3_client):
+def test_download_finds_latest_checkpoint():
     """Verify download picks the highest global_step from S3."""
+    mock_boto3 = MagicMock()
+    mock_s3 = MagicMock()
+    mock_boto3.client.return_value = mock_s3
+
+    mock_paginator = MagicMock()
+    mock_s3.get_paginator.return_value = mock_paginator
+
+    def paginate_side_effect(**kwargs):
+        if "Delimiter" in kwargs:
+            return [
+                {
+                    "CommonPrefixes": [
+                        {"Prefix": "fleet-task-grpo/Qwen3-32B/test_run/global_step_10/"},
+                        {"Prefix": "fleet-task-grpo/Qwen3-32B/test_run/global_step_20/"},
+                        {"Prefix": "fleet-task-grpo/Qwen3-32B/test_run/global_step_5/"},
+                    ]
+                }
+            ]
+        else:
+            return [
+                {
+                    "Contents": [
+                        {
+                            "Key": "fleet-task-grpo/Qwen3-32B/test_run/global_step_20/policy/model.safetensors",
+                            "Size": 1000000,
+                        },
+                        {
+                            "Key": "fleet-task-grpo/Qwen3-32B/test_run/global_step_20/trainer_state.pt",
+                            "Size": 500,
+                        },
+                    ]
+                }
+            ]
+
+    mock_paginator.paginate.side_effect = paginate_side_effect
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        mock_s3 = MagicMock()
-        mock_boto3_client.return_value = mock_s3
-
-        mock_paginator = MagicMock()
-        mock_s3.get_paginator.return_value = mock_paginator
-
-        def paginate_side_effect(**kwargs):
-            if "Delimiter" in kwargs:
-                # Listing directories
-                return [
-                    {
-                        "CommonPrefixes": [
-                            {"Prefix": "fleet-task-grpo/Qwen3-32B/test_run/global_step_10/"},
-                            {"Prefix": "fleet-task-grpo/Qwen3-32B/test_run/global_step_20/"},
-                            {"Prefix": "fleet-task-grpo/Qwen3-32B/test_run/global_step_5/"},
-                        ]
-                    }
-                ]
-            else:
-                # Listing files in latest checkpoint
-                return [
-                    {
-                        "Contents": [
-                            {
-                                "Key": "fleet-task-grpo/Qwen3-32B/test_run/global_step_20/policy/model.safetensors",
-                                "Size": 1000000,
-                            },
-                            {
-                                "Key": "fleet-task-grpo/Qwen3-32B/test_run/global_step_20/trainer_state.pt",
-                                "Size": 500,
-                            },
-                        ]
-                    }
-                ]
-
-        mock_paginator.paginate.side_effect = paginate_side_effect
-
-        with patch.dict(os.environ, {"AWS_ACCESS_KEY_ID": "key", "AWS_SECRET_ACCESS_KEY": "secret"}, clear=False):
-            result = download_checkpoint_from_s3(
-                ckpt_path=tmpdir,
-                run_name="test_run",
-            )
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "botocore": MagicMock(), "botocore.config": MagicMock()}):
+            with patch.dict(os.environ, {"AWS_ACCESS_KEY_ID": "key", "AWS_SECRET_ACCESS_KEY": "secret"}, clear=False):
+                result = download_checkpoint_from_s3(
+                    ckpt_path=tmpdir,
+                    run_name="test_run",
+                )
 
         assert result is True
 
-        # Verify latest_ckpt_global_step.txt was written with step 20 (the max)
         latest_file = os.path.join(tmpdir, "latest_ckpt_global_step.txt")
         assert os.path.exists(latest_file)
         with open(latest_file) as f:
             assert f.read().strip() == "20"
 
-        # Verify download_file was called for both files
         assert mock_s3.download_file.call_count == 2
-
-        # Verify checkpoint directory was created
         assert os.path.isdir(os.path.join(tmpdir, "global_step_20"))
 
 
-@patch("boto3.client")
-def test_download_returns_false_when_no_checkpoints_in_s3(mock_boto3_client):
+def test_download_returns_false_when_no_checkpoints_in_s3():
+    mock_boto3 = MagicMock()
+    mock_s3 = MagicMock()
+    mock_boto3.client.return_value = mock_s3
+
+    mock_paginator = MagicMock()
+    mock_s3.get_paginator.return_value = mock_paginator
+    mock_paginator.paginate.return_value = [{"CommonPrefixes": []}]
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        mock_s3 = MagicMock()
-        mock_boto3_client.return_value = mock_s3
-
-        mock_paginator = MagicMock()
-        mock_s3.get_paginator.return_value = mock_paginator
-        mock_paginator.paginate.return_value = [{"CommonPrefixes": []}]
-
-        with patch.dict(os.environ, {"AWS_ACCESS_KEY_ID": "key", "AWS_SECRET_ACCESS_KEY": "secret"}, clear=False):
-            result = download_checkpoint_from_s3(
-                ckpt_path=tmpdir,
-                run_name="test_run",
-            )
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "botocore": MagicMock(), "botocore.config": MagicMock()}):
+            with patch.dict(os.environ, {"AWS_ACCESS_KEY_ID": "key", "AWS_SECRET_ACCESS_KEY": "secret"}, clear=False):
+                result = download_checkpoint_from_s3(
+                    ckpt_path=tmpdir,
+                    run_name="test_run",
+                )
 
         assert result is False
 
 
-@patch("boto3.client")
-def test_download_uses_correct_s3_prefix(mock_boto3_client):
+def test_download_uses_correct_s3_prefix():
     """Verify S3 prefix is constructed from project_name/model_name/run_name."""
+    mock_boto3 = MagicMock()
+    mock_s3 = MagicMock()
+    mock_boto3.client.return_value = mock_s3
+
+    mock_paginator = MagicMock()
+    mock_s3.get_paginator.return_value = mock_paginator
+    mock_paginator.paginate.return_value = [{"CommonPrefixes": []}]
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        mock_s3 = MagicMock()
-        mock_boto3_client.return_value = mock_s3
-
-        mock_paginator = MagicMock()
-        mock_s3.get_paginator.return_value = mock_paginator
-        mock_paginator.paginate.return_value = [{"CommonPrefixes": []}]
-
-        with patch.dict(os.environ, {"AWS_ACCESS_KEY_ID": "key", "AWS_SECRET_ACCESS_KEY": "secret"}, clear=False):
-            download_checkpoint_from_s3(
-                ckpt_path=tmpdir,
-                run_name="fleet_tool_use_32b_d7167c1c",
-                project_name="fleet-task-grpo",
-                model_name="Qwen3-32B",
-            )
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "botocore": MagicMock(), "botocore.config": MagicMock()}):
+            with patch.dict(os.environ, {"AWS_ACCESS_KEY_ID": "key", "AWS_SECRET_ACCESS_KEY": "secret"}, clear=False):
+                download_checkpoint_from_s3(
+                    ckpt_path=tmpdir,
+                    run_name="fleet_tool_use_32b_d7167c1c",
+                    project_name="fleet-task-grpo",
+                    model_name="Qwen3-32B",
+                )
 
         paginate_call = mock_paginator.paginate.call_args
         assert paginate_call.kwargs["Prefix"] == "fleet-task-grpo/Qwen3-32B/fleet_tool_use_32b_d7167c1c/"
 
 
-@patch("boto3.client")
-def test_download_uses_custom_bucket_from_env(mock_boto3_client):
+def test_download_uses_custom_bucket_from_env():
+    mock_boto3 = MagicMock()
+    mock_s3 = MagicMock()
+    mock_boto3.client.return_value = mock_s3
+
+    mock_paginator = MagicMock()
+    mock_s3.get_paginator.return_value = mock_paginator
+    mock_paginator.paginate.return_value = [{"CommonPrefixes": []}]
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        mock_s3 = MagicMock()
-        mock_boto3_client.return_value = mock_s3
-
-        mock_paginator = MagicMock()
-        mock_s3.get_paginator.return_value = mock_paginator
-        mock_paginator.paginate.return_value = [{"CommonPrefixes": []}]
-
-        with patch.dict(
-            os.environ,
-            {"AWS_ACCESS_KEY_ID": "key", "AWS_SECRET_ACCESS_KEY": "secret", "S3_CHECKPOINT_BUCKET": "my-bucket"},
-            clear=False,
-        ):
-            download_checkpoint_from_s3(
-                ckpt_path=tmpdir,
-                run_name="test_run",
-            )
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "botocore": MagicMock(), "botocore.config": MagicMock()}):
+            with patch.dict(
+                os.environ,
+                {"AWS_ACCESS_KEY_ID": "key", "AWS_SECRET_ACCESS_KEY": "secret", "S3_CHECKPOINT_BUCKET": "my-bucket"},
+                clear=False,
+            ):
+                download_checkpoint_from_s3(
+                    ckpt_path=tmpdir,
+                    run_name="test_run",
+                )
 
         paginate_call = mock_paginator.paginate.call_args
         assert paginate_call.kwargs["Bucket"] == "my-bucket"
@@ -335,11 +333,11 @@ def test_wrap_trainer_keep_local_controls_cleanup_count():
 # ============================================================================
 
 
-@patch("boto3.client")
-def test_uploader_deletes_local_after_upload(mock_boto3_client):
+def test_uploader_deletes_local_after_upload():
     """After successful S3 upload, local checkpoint dir should be deleted to free disk."""
+    mock_boto3 = MagicMock()
     mock_s3 = MagicMock()
-    mock_boto3_client.return_value = mock_s3
+    mock_boto3.client.return_value = mock_s3
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ckpt_dir = os.path.join(tmpdir, "global_step_10")
@@ -347,8 +345,9 @@ def test_uploader_deletes_local_after_upload(mock_boto3_client):
         with open(os.path.join(ckpt_dir, "model.pt"), "w") as f:
             f.write("fake")
 
-        uploader = S3CheckpointUploader(bucket="test-bucket", prefix="test/prefix")
-        result = uploader._upload_sync(ckpt_dir)
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "botocore": MagicMock(), "botocore.config": MagicMock(), "boto3.s3": MagicMock(), "boto3.s3.transfer": MagicMock()}):
+            uploader = S3CheckpointUploader(bucket="test-bucket", prefix="test/prefix")
+            result = uploader._upload_sync(ckpt_dir)
 
         assert result is True
         assert not os.path.exists(ckpt_dir), "Checkpoint dir should be deleted after S3 upload"
