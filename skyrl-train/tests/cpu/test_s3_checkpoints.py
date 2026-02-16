@@ -345,7 +345,16 @@ def test_uploader_deletes_local_after_upload():
         with open(os.path.join(ckpt_dir, "model.pt"), "w") as f:
             f.write("fake")
 
-        with patch.dict(sys.modules, {"boto3": mock_boto3, "botocore": MagicMock(), "botocore.config": MagicMock(), "boto3.s3": MagicMock(), "boto3.s3.transfer": MagicMock()}):
+        with patch.dict(
+            sys.modules,
+            {
+                "boto3": mock_boto3,
+                "botocore": MagicMock(),
+                "botocore.config": MagicMock(),
+                "boto3.s3": MagicMock(),
+                "boto3.s3.transfer": MagicMock(),
+            },
+        ):
             uploader = S3CheckpointUploader(bucket="test-bucket", prefix="test/prefix")
             result = uploader._upload_sync(ckpt_dir)
 
