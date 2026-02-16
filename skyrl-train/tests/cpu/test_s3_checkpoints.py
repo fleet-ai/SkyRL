@@ -9,7 +9,6 @@ import sys
 import tempfile
 import pytest
 from unittest.mock import patch, MagicMock
-from pathlib import Path
 
 from integrations.fleet.s3_checkpoints import (
     cleanup_old_local_checkpoints,
