@@ -110,6 +110,14 @@ class FSDPPolicyWorkerBase(PolicyWorkerBase):
         self.strategy.backload_to_gpu(self.model, self.optimizer, non_blocking, backload_optimizer, backload_model)
 
     def init_model(self, model_path, num_training_steps: int = None):
+        # Set expandable_segments for FSDP training workers only (not globally)
+        # Reduces memory fragmentation during backward pass on large contexts
+        # Cannot be set globally because vLLM v1's memory pool rejects it
+        import os
+
+        alloc_conf = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
+        if "expandable_segments" not in alloc_conf:
+            os.environ["PYTORCH_CUDA_ALLOC_CONF"] = (alloc_conf + ",expandable_segments:True").lstrip(",")
         assert self.cfg.trainer.strategy in ("fsdp", "fsdp2")
         strategy = FSDPStrategy(
             fsdp_config=self.cfg.trainer.policy.fsdp_config,

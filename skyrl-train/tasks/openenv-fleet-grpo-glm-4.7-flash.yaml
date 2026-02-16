@@ -131,6 +131,11 @@
 #          - Re-add PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True (was wrongly
 #            removed — pidfd was from vLLM v1, not expandable_segments)
 #          - B200 only (192 GiB vs H200's 141 GiB — needed for 48K context backward)
+# v0.1.51: Fix vLLM v1 + expandable_segments conflict
+#          - vLLM v0.16 is v1 engine by default, VLLM_USE_V1=0 no longer recognized
+#          - v1 engine rejects expandable_segments (conflicts with memory pool)
+#          - Move expandable_segments to FSDP worker init_model() (per-process)
+#          - Remove VLLM_USE_V1 env var (no longer needed/recognized)
 
 name: fleet-task-grpo-glm-4.7-flash
 
@@ -159,9 +164,7 @@ envs:
   # Use FLASHINFER attention backend for vLLM inference (bundled with vLLM)
   # flash_attn stub package provides bert_padding (pure Python) for SkyRL training
   VLLM_ATTENTION_BACKEND: "FLASHINFER"
-  # Disable vLLM v1 engine — v1's collective_rpc uses pidfd_getfd which requires
-  # SYS_PTRACE capability that RunPod containers lack. v0 uses direct weight updates.
-  VLLM_USE_V1: "0"
+  # Note: VLLM_USE_V1 removed — no longer recognized by vLLM v0.16+ (v1 is default)
   ENV_KEYS: ""
   MODALITY: "tool_use"
   MAX_TURNS: 50
@@ -318,10 +321,8 @@ run: |
   mkdir -p "$TMP_DIR"
   export TMPDIR="$TMP_DIR"
 
-  # Re-added: expandable_segments was removed thinking it caused pidfd_getfd, but
-  # that was actually vLLM v1 engine (fixed by VLLM_USE_V1=0). expandable_segments
-  # reduces memory fragmentation during training.
-  export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+  # expandable_segments is set per-worker in fsdp_worker.py init_model()
+  # Cannot be set globally because vLLM v1's memory pool rejects it
 
   TASKS_FILE="$HOME/data/fleet/tasks_${MODALITY}.json"
   DATA_DIR="$HOME/data/fleet/${MODALITY}"
