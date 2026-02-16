@@ -125,7 +125,7 @@ class FleetPPOExp(BasePPOExp):
         try:
             from integrations.fleet.s3_checkpoints import wrap_trainer_with_s3_upload
 
-            trainer = wrap_trainer_with_s3_upload(trainer, keep_local=True)
+            trainer = wrap_trainer_with_s3_upload(trainer)
         except Exception as e:
             logger.warning(f"Failed to setup checkpoint management: {e}")
 

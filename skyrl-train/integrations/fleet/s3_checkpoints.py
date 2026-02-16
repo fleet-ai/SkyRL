@@ -55,12 +55,10 @@ class S3CheckpointUploader:
         prefix: str,
         region: str = "us-east-1",
         max_workers: int = 2,
-        keep_local: bool = True,
     ):
         self.bucket = bucket
         self.prefix = prefix
         self.region = region
-        self.keep_local = keep_local
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="s3-upload")
         self._pending: set = set()
         self._lock = threading.Lock()
@@ -114,12 +112,9 @@ class S3CheckpointUploader:
                 f"Uploaded {checkpoint_name}: {uploaded_files} files, {total_size / 1e9:.2f} GB to s3://{self.bucket}/{s3_prefix}/"
             )
 
-            # Delete local after successful upload (unless keep_local is set)
-            if not self.keep_local:
-                logger.info(f"Deleting local checkpoint: {local_dir}")
-                shutil.rmtree(local_dir)
-            else:
-                logger.info(f"Keeping local checkpoint: {local_dir} (uploaded to S3)")
+            # Delete local after successful upload to free disk space
+            logger.info(f"Deleting local checkpoint after S3 upload: {local_dir}")
+            shutil.rmtree(local_dir)
 
             return True
 
@@ -177,20 +172,18 @@ def wrap_trainer_with_s3_upload(
     bucket: Optional[str] = None,
     prefix: Optional[str] = None,
     region: Optional[str] = None,
-    keep_local: bool = True,
 ):
     """
     Wrap a SkyRL trainer to:
     1. Clean up old checkpoints BEFORE saving (prevents disk full)
     2. Upload to S3 asynchronously AFTER saving (if credentials set)
-    3. Optionally delete local checkpoint after upload (keep_local=False)
+    3. Delete local checkpoint after successful S3 upload (frees disk)
 
     Args:
         trainer: SkyRL trainer instance
         bucket: S3 bucket (default: from S3_CHECKPOINT_BUCKET env var)
         prefix: S3 prefix (default: from trainer config)
         region: AWS region (default: from AWS_REGION env var)
-        keep_local: If True, keep local checkpoints after upload (default: True for resume support)
 
     Returns:
         The trainer (modified in place)
@@ -212,8 +205,8 @@ def wrap_trainer_with_s3_upload(
     s3_enabled = bool(aws_key and aws_secret)
 
     if s3_enabled:
-        logger.info(f"S3 checkpoint upload ENABLED: s3://{bucket}/{prefix}/ (keep_local={keep_local})")
-        uploader = S3CheckpointUploader(bucket=bucket, prefix=prefix, region=region, keep_local=keep_local)
+        logger.info(f"S3 checkpoint upload ENABLED: s3://{bucket}/{prefix}/")
+        uploader = S3CheckpointUploader(bucket=bucket, prefix=prefix, region=region)
     else:
         logger.warning(
             "AWS credentials not found. S3 upload DISABLED. "
