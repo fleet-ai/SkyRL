@@ -120,6 +120,10 @@
 #          - HF packs experts as 3D tensors: experts.gate_up_proj [N, 2*I, H]
 #          - vLLM expects checkpoint format: experts.{i}.gate_proj.weight [I, H]
 #          - Added _unpack_moe_experts() to FSDPWeightExtractor to convert formats
+# v0.1.48: Fix MoE unpacking for CudaIpc grouped path
+#          - colocate_all=true + nccl selects CudaIpcTransferStrategy → group_by_module=True
+#          - MoE unpacking was only in the simple path, not yield_module_grouped_chunks
+#          - Moved _unpack_moe_experts to weight_extractor_utils.py for both paths
 
 name: fleet-task-grpo-glm-4.7-flash
 
