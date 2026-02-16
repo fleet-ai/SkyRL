@@ -113,8 +113,9 @@
 #          - Skip DTensor-specific sharding for regular Tensor entries
 # v0.1.46: Fix pidfd_getfd permission error in vLLM weight sync
 #          - RunPod containers lack SYS_PTRACE capability
-#          - vLLM's collective_rpc uses pidfd_getfd for inter-process CUDA sharing
-#          - Set VLLM_WORKER_MULTIPROC_METHOD=spawn to use fork-safe method
+#          - vLLM nightly v1 engine uses collective_rpc → pidfd_getfd for CUDA IPC
+#          - VLLM_USE_V1=0 falls back to v0 engine with direct weight updates
+#          - Also removed PYTORCH_ALLOC_CONF=expandable_segments (triggers pidfd)
 
 name: fleet-task-grpo-glm-4.7-flash
 
@@ -151,8 +152,9 @@ envs:
   # Use FLASHINFER attention backend for vLLM inference (bundled with vLLM)
   # flash_attn stub package provides bert_padding (pure Python) for SkyRL training
   VLLM_ATTENTION_BACKEND: "FLASHINFER"
-  # Use spawn instead of pidfd for vLLM multi-process (RunPod lacks SYS_PTRACE)
-  VLLM_WORKER_MULTIPROC_METHOD: "spawn"
+  # Disable vLLM v1 engine — v1's collective_rpc uses pidfd_getfd which requires
+  # SYS_PTRACE capability that RunPod containers lack. v0 uses direct weight updates.
+  VLLM_USE_V1: "0"
   ENV_KEYS: ""
   MODALITY: "tool_use"
   MAX_TURNS: 50
@@ -309,7 +311,7 @@ run: |
   mkdir -p "$TMP_DIR"
   export TMPDIR="$TMP_DIR"
 
-  export PYTORCH_ALLOC_CONF=expandable_segments:True
+  # NOTE: expandable_segments removed — triggers pidfd_getfd in CUDA IPC on RunPod
 
   TASKS_FILE="$HOME/data/fleet/tasks_${MODALITY}.json"
   DATA_DIR="$HOME/data/fleet/${MODALITY}"
