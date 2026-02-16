@@ -391,6 +391,17 @@ If the task is complete, provide your answer then say <done>. Otherwise, make a 
         # Check if episode is done
         episode_done = agent_done or max_turns_reached
 
+        # Detect error patterns in tool_result (tool returned error as successful response)
+        if not error and tool_result:
+            result_str = str(tool_result) if not isinstance(tool_result, str) else tool_result
+            # Check for common error patterns in tool response
+            if result_str.strip().startswith("Error:") or result_str.strip().startswith("error:"):
+                error = result_str
+                tool_result = None
+            elif isinstance(tool_result, dict) and "error" in tool_result:
+                error = tool_result.get("error", str(tool_result))
+                tool_result = None
+
         # Build observation message
         if max_turns_reached:
             return BaseTextEnvStepOutput(
