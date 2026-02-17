@@ -12,11 +12,12 @@
 # v0.4.2: disk_size 300→750, max_ckpts_to_keep=1 to fix disk full during checkpoint save
 # v0.4.3: Fix workdir ref to main (feat/vl-multimodal-support had broken prepare_dataset.py)
 # v0.4.4: S3 checkpoint resume support (keep_local=True, download from S3 via RESUME_RUN_NAME)
+# v0.4.5: Increase LR 5e-7 → 2e-6 (4x) to improve learning on hard envs with low variance
 
 name: fleet-task-grpo-qwen3-32b
 
 resources:
-  disk_size: 1500  # 32B needs: model (~64GB) + optimizer (~192GB) + checkpoint (~256GB) + headroom
+  disk_size: 750  # 32B needs: model (~64GB) + optimizer (~192GB) + checkpoint (~256GB) + headroom
   ports: 6479
   any_of:
     # B200:8 required for 32B model (OOM on B200:4 during backward pass)
@@ -178,7 +179,7 @@ run: |
     generator.sampling_params.top_p=0.95 \
     generator.sampling_params.stop='["</tool_call>"]' \
     generator.eval_sampling_params.stop='["</tool_call>"]' \
-    trainer.policy.optimizer_config.lr=5.0e-7 \
+    trainer.policy.optimizer_config.lr=2.0e-6 \
     trainer.algorithm.use_kl_loss=true \
     generator.max_turns=$MAX_TURNS \
     generator.backend=$INFERENCE_BACKEND \
