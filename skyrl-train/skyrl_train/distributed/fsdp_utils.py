@@ -331,6 +331,14 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_sd: dict, cpu_offloa
 
     if not cpu_offload:
         load_fsdp2_model_to_gpu(model)
+    else:
+        # With CPU offload, FSDP manages parameter movement (CPU↔GPU) per-layer
+        # during forward/backward. But buffers (e.g. MoE router biases) are NOT
+        # managed by FSDP — they stay wherever they are. Since we just moved
+        # everything to CPU, buffers need to be explicitly moved back to GPU.
+        device = torch.cuda.current_device()
+        for buf in model.buffers():
+            buf.data = buf.data.to(device, non_blocking=True)
     return model
 
 
