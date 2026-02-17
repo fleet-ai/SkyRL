@@ -53,6 +53,35 @@ EXCLUDED_ENVS = {
     "computer_use": [],
 }
 
+# Tasks excluded due to missing CURRENT_DATE in env_variables (v0.4.0)
+# These tasks have partial dates (e.g., "January 30th" without year) but their
+# tool calls require mm/dd/yy format. Without CURRENT_DATE, the model cannot
+# compute the correct year, causing date validation failures.
+# See: https://github.com/fleet-ai/SkyRL/pull/246
+TASKS_MISSING_CURRENT_DATE = {
+    "task_a44hx6crecg4_1769052238469_i7dxxtjvq",  # zillow - February 1st
+    "task_a7rlslof7gdy_1768337837679_8be6pguu3",  # zillow - March 11th
+    "task_axtmgwocana_1768544478249_k2ozcylyf",  # zillow - January 21st
+    "task_b1fxgn0k3yms_1768542773490_ddbhj5bai",  # zillow - January 30th
+    "task_b4v77hb3owof_1768546181946_efsedxv9g",  # zillow - February 14th
+    "task_b5zt6ipf0nbl_1768346335430_i23gknp4t",  # zillow - January 15th
+    "task_bafrpi5qgyzh_1768546181946_2cebmq91r",  # zillow - February 14th
+    "task_bdmnfipwxlqv_1769052238469_4nglwjqfm",  # zillow - February 1st
+    "task_bxqzfjc2dbte_1768337837679_2qvnm9rq7",  # zillow - March 11th
+    "task_c3jwlxmfvbop_1768544478249_efo6hxylr",  # zillow - January 21st
+    "task_c7o0c7ehhv9t_1768542773490_2t9w2l1z5",  # zillow - January 30th
+    "task_ceqj4h9t0ygi_1768346335430_8j1w8w5xp",  # zillow - January 15th
+    "task_cgpxfxp78bvp_1768346335430_6v4n8wlt8",  # zillow - January 15th
+    "task_cgsz56tqjlv6_1768346335430_hqgsjy4wt",  # zillow - January 15th
+    "task_dpv4bpdpz6db_1768542773490_f3g6w8e8g",  # zillow - January 30th
+    "task_f7lgb6fxfwln_1768337837679_d1dxk6ahv",  # zillow - March 11th
+    "task_fl1rq3d2wbj9_1768337837679_d2x4k8p93",  # zillow - March 11th
+    "task_fn1k5mvjx6r1_1768544478249_1nfmnp6r2",  # zillow - January 21st
+    "task_fnh5f0x7hv6w_1768544478249_8wptm6zqp",  # zillow - January 21st
+    "task_g2dwb1rfx69c_1769052238469_bc1y9h9d7",  # zillow - February 1st
+    "task_g3wpj1mcl0lf_1768546181946_59vtqn9fw",  # zillow - February 14th
+}
+
 # Minimum number of samples required to create an eval split for an env
 MIN_EVAL_SAMPLES = 5
 
@@ -232,6 +261,26 @@ def prepare_fleet_dataset(
         tasks = [t for t in tasks if t.get("env_key") not in excluded_envs]
         print(f"Excluded environments: {excluded_envs}")
         print(f"After excluding: {len(tasks)} tasks (removed {before_count - len(tasks)})")
+
+    # Filter out tasks missing CURRENT_DATE (v0.4.0)
+    # These tasks have partial dates but require mm/dd/yy format in tool calls
+    before_count = len(tasks)
+    filtered_tasks = []
+    filtered_task_keys = []
+    for task in tasks:
+        task_key = task.get("key") or task.get("task_key")
+        if task_key in TASKS_MISSING_CURRENT_DATE:
+            filtered_task_keys.append(task_key)
+        else:
+            filtered_tasks.append(task)
+    tasks = filtered_tasks
+
+    if filtered_task_keys:
+        print(f"\n⚠️  WARNING: Filtered {len(filtered_task_keys)} tasks missing CURRENT_DATE in env_variables")
+        print("  These tasks have partial dates (e.g., 'January 30th') but tool calls require mm/dd/yy format.")
+        print("  Without CURRENT_DATE, the model cannot determine the correct year.")
+        print(f"  Filtered task_keys: {filtered_task_keys[:5]}{'...' if len(filtered_task_keys) > 5 else ''}")
+        print(f"  After filtering: {len(tasks)} tasks (removed {before_count - len(tasks)})\n")
 
     # Get held-out envs for this modality
     held_out_envs = set(HELD_OUT_ENVS.get(modality, []))
