@@ -136,6 +136,10 @@
 #          - v1 engine rejects expandable_segments (conflicts with memory pool)
 #          - Move expandable_segments to FSDP worker init_model() (per-process)
 #          - Remove VLLM_USE_V1 env var (no longer needed/recognized)
+# v0.1.52: Enable FSDP CPU offload to fix OOM during backward pass
+#          - 48K context backward needs 44 GiB but only 22 GiB free on B200 (178 GiB)
+#          - cpu_offload=true offloads params+optimizer to pinned CPU memory (~45 GiB saved)
+#          - Params streamed to GPU layer-by-layer during fwd/bwd (slower but fits in memory)
 
 name: fleet-task-grpo-glm-4.7-flash
 
@@ -369,6 +373,7 @@ run: |
     +trainer.policy.model_config_kwargs.attn_implementation=sdpa \
     trainer.flash_attn=false \
     trainer.use_sample_packing=false \
+    trainer.policy.fsdp_config.cpu_offload=true \
     trainer.placement.colocate_all=true \
     trainer.strategy=fsdp2 \
     trainer.placement.policy_num_gpus_per_node=$TOTAL_GPUS \
