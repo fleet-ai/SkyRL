@@ -12,6 +12,7 @@
 # v0.4.2: disk_size 300→750, max_ckpts_to_keep=1 to fix disk full during checkpoint save
 # v0.4.3: Fix workdir ref to main (feat/vl-multimodal-support had broken prepare_dataset.py)
 # v0.4.4: S3 checkpoint resume support (keep_local=True, download from S3 via RESUME_RUN_NAME)
+# v0.4.5: Higher LR (5e-7 → 1e-5) + disable KL loss to increase PPO clipping
 
 name: fleet-task-grpo-qwen3-32b
 
@@ -40,7 +41,7 @@ num_nodes: 1
 
 workdir:
   url: https://github.com/fleet-ai/SkyRL.git
-  ref: main
+  ref: feat/32b-no-kl-high-lr  # TODO: change back to main before merging
 
 envs:
   WANDB_API_KEY: ""
@@ -178,8 +179,8 @@ run: |
     generator.sampling_params.top_p=0.95 \
     generator.sampling_params.stop='["</tool_call>"]' \
     generator.eval_sampling_params.stop='["</tool_call>"]' \
-    trainer.policy.optimizer_config.lr=5.0e-7 \
-    trainer.algorithm.use_kl_loss=true \
+    trainer.policy.optimizer_config.lr=1.0e-5 \
+    trainer.algorithm.use_kl_loss=false \
     generator.max_turns=$MAX_TURNS \
     generator.backend=$INFERENCE_BACKEND \
     generator.run_engines_locally=true \
