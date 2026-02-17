@@ -232,14 +232,14 @@ jobs:
               aws ec2 start-instances --instance-ids "$INSTANCE_ID" > /dev/null 2>&1
             elif [ "$INSTANCE_STATE" = "running" ]; then
               echo "[$INSTANCE_NAME] Stopping instance..."
-              aws ec2 stop-instances --instance-ids "$INSTANCE_ID" > /dev/null 2>&1
+              aws ec2 stop-instances --instance-ids "$INSTANCE_ID" --force > /dev/null 2>&1
               echo "[$INSTANCE_NAME] Waiting for instance to stop..."
-              aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID" 2>/dev/null
+              timeout 120 aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID" 2>/dev/null
               echo "[$INSTANCE_NAME] Starting instance..."
               aws ec2 start-instances --instance-ids "$INSTANCE_ID" > /dev/null 2>&1
             elif [ "$INSTANCE_STATE" = "stopping" ]; then
               echo "[$INSTANCE_NAME] Instance is stopping, waiting..."
-              aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID" 2>/dev/null
+              timeout 120 aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID" 2>/dev/null
               echo "[$INSTANCE_NAME] Starting instance..."
               aws ec2 start-instances --instance-ids "$INSTANCE_ID" > /dev/null 2>&1
             else
@@ -247,14 +247,14 @@ jobs:
               aws ec2 start-instances --instance-ids "$INSTANCE_ID" > /dev/null 2>&1
             fi
 
-            # Wait for instance to be running and pass status checks (up to 10 min)
-            echo "[$INSTANCE_NAME] Waiting for instance to pass status checks..."
-            if timeout 600 aws ec2 wait instance-status-ok --instance-ids "$INSTANCE_ID" 2>/dev/null; then
+            # Wait for instance to be running (not full status checks — next health check cycle will verify)
+            echo "[$INSTANCE_NAME] Waiting for instance to start running..."
+            if timeout 180 aws ec2 wait instance-running --instance-ids "$INSTANCE_ID" 2>/dev/null; then
               echo "recovered" > "$RESULT_FILE"
-              echo "[$INSTANCE_NAME] Recovered successfully"
+              echo "[$INSTANCE_NAME] Instance running, recovery initiated"
             else
               echo "failed" > "$RESULT_FILE"
-              echo "[$INSTANCE_NAME] Recovery failed"
+              echo "[$INSTANCE_NAME] Recovery failed — instance did not reach running state"
             fi
           }
 
