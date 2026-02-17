@@ -41,7 +41,7 @@ num_nodes: 1
 
 workdir:
   url: https://github.com/fleet-ai/SkyRL.git
-  ref: main
+  ref: feat/32b-higher-lr  # TODO: change back to main before merging
 
 envs:
   WANDB_API_KEY: ""
