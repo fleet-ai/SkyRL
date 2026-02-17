@@ -48,8 +48,9 @@ HELD_OUT_ENVS = {
 
 # Excluded environments (removed from both train and eval)
 # v0.3.6: google-maps excluded due to broken MCP server (502 errors, "database is locked")
+# v0.4.0: dropbox excluded - only 3 tasks, 0% training signal (model always fails)
 EXCLUDED_ENVS = {
-    "tool_use": [],
+    "tool_use": ["dropbox"],
     "computer_use": [],
 }
 
