@@ -50,7 +50,7 @@ HELD_OUT_ENVS = {
 # v0.3.6: google-maps excluded due to broken MCP server (502 errors, "database is locked")
 # v0.4.0: dropbox excluded - only 3 tasks, 0% training signal (model always fails)
 EXCLUDED_ENVS = {
-    "tool_use": ["dropbox"],
+    "tool_use": ["dropbox", "google-maps"],
     "computer_use": [],
 }
 
@@ -259,9 +259,18 @@ def prepare_fleet_dataset(
     excluded_envs = set(EXCLUDED_ENVS.get(modality, []))
     if excluded_envs:
         before_count = len(tasks)
+        # Count tasks per excluded env for detailed warning
+        excluded_counts = {}
+        for task in tasks:
+            env_key = task.get("env_key")
+            if env_key in excluded_envs:
+                excluded_counts[env_key] = excluded_counts.get(env_key, 0) + 1
         tasks = [t for t in tasks if t.get("env_key") not in excluded_envs]
-        print(f"Excluded environments: {excluded_envs}")
-        print(f"After excluding: {len(tasks)} tasks (removed {before_count - len(tasks)})")
+
+        print(f"\n⚠️  WARNING: Excluding {len(excluded_envs)} environments from training/eval")
+        for env, count in sorted(excluded_counts.items()):
+            print(f"  - {env}: {count} tasks removed")
+        print(f"  After excluding: {len(tasks)} tasks (removed {before_count - len(tasks)})\n")
 
     # Filter out tasks missing CURRENT_DATE (v0.4.0)
     # These tasks have partial dates but require mm/dd/yy format in tool calls
