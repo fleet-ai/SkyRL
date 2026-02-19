@@ -152,15 +152,9 @@ class SWETasksGenerator(SkyRLGymGenerator):
     ):
         super().__init__(generator_cfg, skyrl_gym_cfg, inference_engine_client, tokenizer, model_name)
 
-        self.http_endpoint_host = generator_cfg.get(
-            "http_endpoint_host", "127.0.0.1"
-        )
-        self.http_endpoint_port = generator_cfg.get(
-            "http_endpoint_port", 8001
-        )
-        self.base_url = (
-            f"http://{self.http_endpoint_host}:{self.http_endpoint_port}"
-        )
+        self.http_endpoint_host = generator_cfg.get("http_endpoint_host", "127.0.0.1")
+        self.http_endpoint_port = generator_cfg.get("http_endpoint_port", 8001)
+        self.base_url = f"http://{self.http_endpoint_host}:{self.http_endpoint_port}"
         self.generator_cfg = generator_cfg
         self.tokenizer = tokenizer
         self.model_name = model_name
@@ -213,9 +207,7 @@ class SWETasksGenerator(SkyRLGymGenerator):
         for message in messages[:2]:
             assert message["role"] in ("system", "user")
 
-        initial_input_ids = self.tokenizer.apply_chat_template(
-            messages[:2], add_generation_prompt=False, tokenize=True
-        )
+        initial_input_ids = self.tokenizer.apply_chat_template(messages[:2], add_generation_prompt=False, tokenize=True)
         initial_prompt_length = len(initial_input_ids)
 
         # Remove trailing user messages (final git diff capture)
@@ -283,9 +275,7 @@ class SWETasksGenerator(SkyRLGymGenerator):
         prompt_token_ids = [output[4] for output in all_outputs if output[0] is not None]
 
         if not len(responses):
-            raise ValueError(
-                "No valid responses. All trajectories failed — check environment setup."
-            )
+            raise ValueError("No valid responses. All trajectories failed — check environment setup.")
 
         rollout_metrics = get_rollout_metrics(responses, rewards)
 

@@ -55,9 +55,7 @@ def get_swe_task_environment(config: dict, instance: dict) -> Environment:
     return env
 
 
-def evaluate_trajectory(
-    instance: Dict[str, Any], model_patch: str, config: dict
-) -> SWETaskEvaluationResult:
+def evaluate_trajectory(instance: Dict[str, Any], model_patch: str, config: dict) -> SWETaskEvaluationResult:
     """
     Evaluate a model-generated patch against the task's eval_script.
 
@@ -103,8 +101,6 @@ def evaluate_trajectory(
         eval_cmd = f"bash <<'EOF'\n{eval_script}\nEOF"
         obs = env.execute(eval_cmd, timeout=3600)
         ret["resolved"] = obs["returncode"] == 0
-        ret["eval_error"] = (
-            f"(truncated to last 1000 chars)\n{obs['output'][-1000:]}" if not ret["resolved"] else None
-        )
+        ret["eval_error"] = f"(truncated to last 1000 chars)\n{obs['output'][-1000:]}" if not ret["resolved"] else None
 
     return ret
