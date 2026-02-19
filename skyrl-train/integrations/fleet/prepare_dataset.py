@@ -48,10 +48,10 @@ HELD_OUT_ENVS = {
 
 # Excluded environments (removed from both train and eval)
 # v0.3.6: google-maps excluded due to broken MCP server (502 errors, "database is locked")
-# v0.4.0: dropbox excluded - only 3 tasks, 0% training signal (model always fails)
+# v0.4.0: dropbox excluded due to broken env (instance creation timeouts)
 EXCLUDED_ENVS = {
-    "tool_use": ["dropbox", "google-maps"],
-    "computer_use": [],
+    "tool_use": ["dropbox"],
+    "computer_use": ["dropbox"],
 }
 
 # Tasks excluded due to missing CURRENT_DATE in env_variables (v0.4.0)
@@ -187,6 +187,7 @@ def prepare_fleet_dataset(
     modality: Optional[str] = "tool_use",
     eval_ratio: float = 0.20,  # v0.3.2: increased to 20% to include carlisle/outlook in eval
     env_filter: Optional[str] = None,
+    difficulty_filter: Optional[str] = None,  # v0.4.0: filter by difficulty (1=easy, 2=medium, 3=hard)
     max_tasks: Optional[int] = None,
     max_env_ratio: float = MAX_ENV_TRAIN_RATIO,  # v0.3.1: cap dominant environments
     max_eval_prompts: Optional[int] = MAX_EVAL_PROMPTS,  # v0.3.2: cap total eval prompts
@@ -203,6 +204,17 @@ def prepare_fleet_dataset(
         max_tasks: Optional maximum number of tasks to include
         max_env_ratio: Maximum fraction any single env can contribute to training (default: 0.20)
     """
+    # Log applied filters at the start
+    print("\n=== Dataset Filters ===")
+    print(f"  Source: {tasks_json}")
+    print(f"  Modality: {modality or 'all'}")
+    print(f"  Env filter: {env_filter or 'none'}")
+    print(f"  Difficulty filter: {difficulty_filter or 'all (1,2,3)'}")
+    print(f"  Max tasks: {max_tasks or 'unlimited'}")
+    print(f"  Max env ratio: {max_env_ratio:.0%}")
+    print(f"  Max eval prompts: {max_eval_prompts or 'unlimited'}")
+    print()
+
     print(f"Loading tasks from {tasks_json}...")
     tasks = load_tasks_from_json(tasks_json)
     print(f"Loaded {len(tasks)} tasks")
@@ -217,6 +229,12 @@ def prepare_fleet_dataset(
         env_list = [e.strip() for e in env_filter.split(",") if e.strip()]
         tasks = [t for t in tasks if t.get("env_key") in env_list or t.get("env_id") in env_list]
         print(f"After env filter ({env_list}): {len(tasks)} tasks")
+
+    # Filter by difficulty if specified - supports comma-separated list (e.g., "1,2" for easy+medium)
+    if difficulty_filter:
+        diff_list = [int(d.strip()) for d in difficulty_filter.split(",") if d.strip()]
+        tasks = [t for t in tasks if t.get("difficulty") in diff_list]
+        print(f"After difficulty filter ({diff_list}): {len(tasks)} tasks")
 
     # Limit tasks if specified
     if max_tasks and len(tasks) > max_tasks:
@@ -259,38 +277,17 @@ def prepare_fleet_dataset(
     excluded_envs = set(EXCLUDED_ENVS.get(modality, []))
     if excluded_envs:
         before_count = len(tasks)
-        # Count tasks per excluded env for detailed warning
-        excluded_counts = {}
-        for task in tasks:
-            env_key = task.get("env_key")
-            if env_key in excluded_envs:
-                excluded_counts[env_key] = excluded_counts.get(env_key, 0) + 1
         tasks = [t for t in tasks if t.get("env_key") not in excluded_envs]
+        print(f"Excluded environments: {excluded_envs}")
+        print(f"After excluding envs: {len(tasks)} tasks (removed {before_count - len(tasks)})")
 
-        print(f"\n⚠️  WARNING: Excluding {len(excluded_envs)} environments from training/eval")
-        for env, count in sorted(excluded_counts.items()):
-            print(f"  - {env}: {count} tasks removed")
-        print(f"  After excluding: {len(tasks)} tasks (removed {before_count - len(tasks)})\n")
-
-    # Filter out tasks missing CURRENT_DATE (v0.4.0)
-    # These tasks have partial dates but require mm/dd/yy format in tool calls
-    before_count = len(tasks)
-    filtered_tasks = []
-    filtered_task_keys = []
-    for task in tasks:
-        task_key = task.get("key") or task.get("task_key")
-        if task_key in TASKS_MISSING_CURRENT_DATE:
-            filtered_task_keys.append(task_key)
-        else:
-            filtered_tasks.append(task)
-    tasks = filtered_tasks
-
-    if filtered_task_keys:
-        print(f"\n⚠️  WARNING: Filtered {len(filtered_task_keys)} tasks missing CURRENT_DATE in env_variables")
-        print("  These tasks have partial dates (e.g., 'January 30th') but tool calls require mm/dd/yy format.")
-        print("  Without CURRENT_DATE, the model cannot determine the correct year.")
-        print(f"  Filtered task_keys: {filtered_task_keys[:5]}{'...' if len(filtered_task_keys) > 5 else ''}")
-        print(f"  After filtering: {len(tasks)} tasks (removed {before_count - len(tasks)})\n")
+    # Exclude specific tasks missing CURRENT_DATE
+    if TASKS_MISSING_CURRENT_DATE:
+        before_count = len(tasks)
+        tasks = [t for t in tasks if (t.get("key") or t.get("task_key")) not in TASKS_MISSING_CURRENT_DATE]
+        removed = before_count - len(tasks)
+        if removed > 0:
+            print(f"Excluded tasks missing CURRENT_DATE: {removed} tasks")
 
     # Get held-out envs for this modality
     held_out_envs = set(HELD_OUT_ENVS.get(modality, []))
@@ -521,6 +518,12 @@ def main():
         help="Optional env_key filter (e.g., 'github', 'booking')",
     )
     parser.add_argument(
+        "--difficulty-filter",
+        type=str,
+        default=None,
+        help="Optional difficulty filter: 1=easy, 2=medium, 3=hard (e.g., '1,2' for easy+medium)",
+    )
+    parser.add_argument(
         "--max-tasks",
         type=int,
         default=None,
@@ -550,6 +553,7 @@ def main():
         modality=modality,
         eval_ratio=args.eval_ratio,
         env_filter=args.env_filter,
+        difficulty_filter=args.difficulty_filter,
         max_tasks=args.max_tasks,
         max_env_ratio=args.max_env_ratio,
         max_eval_prompts=args.max_eval_prompts,
