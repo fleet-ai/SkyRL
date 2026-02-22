@@ -300,7 +300,21 @@ If the task is complete, provide your answer then say <done>. Otherwise, make a 
 
         # Build conversation with system prompt
         system_message = {"role": "system", "content": system_content}
-        user_message = {"role": "user", "content": task_prompt}
+
+        # For computer_use with initial screenshot, create multimodal user message
+        initial_screenshot = obs.get("initial_screenshot")
+        if initial_screenshot and isinstance(initial_screenshot, list):
+            # Build multimodal content: task prompt + screenshot
+            user_content = [{"type": "text", "text": task_prompt}]
+            # Add images from screenshot result
+            for item in initial_screenshot:
+                if isinstance(item, dict) and item.get("type") == "image_url":
+                    user_content.append(item)
+            user_message = {"role": "user", "content": user_content}
+            logger.info(f"Task {self.task_key}: included initial screenshot in user message")
+        else:
+            user_message = {"role": "user", "content": task_prompt}
+
         self.chat_history = [system_message, user_message]
 
         metadata = {
@@ -336,11 +350,27 @@ If the task is complete, provide your answer then say <done>. Otherwise, make a 
 
         max_turns_reached = self.turns >= self.max_turns
 
-        # Check if agent signals completion
-        agent_done = "<done>" in action.lower() or "[done]" in action.lower()
-
         # Parse tool call from LLM response
         tool_call = parse_tool_call(action)
+
+        # Check if agent signals completion
+        has_done_signal = "<done>" in action.lower() or "[done]" in action.lower()
+
+        # Log the model output for debugging early termination
+        if self.turns == 1:
+            # Log full output for turn 1 to diagnose early termination
+            logger.info(
+                f"Task {self.task_key} turn 1 FULL OUTPUT:\n"
+                f"has_tool_call={tool_call is not None}\n"
+                f"has_done_signal={has_done_signal}\n"
+                f"agent_done={has_done_signal and not tool_call}\n"
+                f"action_length={len(action)}\n"
+                f"action='''{action[:500]}'''"
+            )
+
+        # Only consider <done> if there's NO tool call - if there's a tool call,
+        # we need to execute it and see the result before ending the episode
+        agent_done = has_done_signal and not tool_call
 
         tool_result = None
         error = None
@@ -412,22 +442,48 @@ If the task is complete, provide your answer then say <done>. Otherwise, make a 
             )
 
         # Build response observation
+        # For VL models, tool_result may contain images in OpenAI-compatible format:
+        # [{"type": "text", "text": "..."}, {"type": "image_url", "image_url": {"url": "data:..."}}]
         if error:
             self.tool_errors += 1
             obs_content = f"Error: {error}"
+            new_obs = {"role": "user", "content": obs_content}
         elif tool_result:
-            if isinstance(tool_result, dict):
+            # Check if tool_result contains images (list with image_url items)
+            if isinstance(tool_result, list) and any(
+                isinstance(item, dict) and item.get("type") == "image_url" for item in tool_result
+            ):
+                # Multimodal result - create OpenAI-compatible content array
+                content_parts = []
+                for item in tool_result:
+                    if isinstance(item, dict):
+                        if item.get("type") == "image_url":
+                            content_parts.append(item)
+                        elif item.get("type") == "text":
+                            content_parts.append({"type": "text", "text": f"Tool result:\n{item.get('text', '')}"})
+                        else:
+                            # Unknown type - convert to text
+                            content_parts.append(
+                                {"type": "text", "text": f"Tool result:\n{json.dumps(item, indent=2)}"}
+                            )
+                    else:
+                        content_parts.append({"type": "text", "text": f"Tool result:\n{str(item)}"})
+                new_obs = {"role": "user", "content": content_parts}
+            elif isinstance(tool_result, dict):
                 obs_content = f"Tool result:\n{json.dumps(tool_result, indent=2)}"
+                new_obs = {"role": "user", "content": obs_content}
             else:
                 obs_content = f"Tool result:\n{tool_result}"
+                new_obs = {"role": "user", "content": obs_content}
         elif agent_done:
             obs_content = "Task marked as complete."
+            new_obs = {"role": "user", "content": obs_content}
         elif not tool_call:
             obs_content = 'No tool call found. Use <tool_call>{"name": "...", "arguments": {...}}</tool_call> format.'
+            new_obs = {"role": "user", "content": obs_content}
         else:
             obs_content = "Action executed."
-
-        new_obs = {"role": "user", "content": obs_content}
+            new_obs = {"role": "user", "content": obs_content}
         self.chat_history.append(new_obs)
         if self.context_manager:
             self.context_manager.track_message(new_obs)
