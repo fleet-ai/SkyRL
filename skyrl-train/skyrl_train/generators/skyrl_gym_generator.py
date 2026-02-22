@@ -268,7 +268,9 @@ class SkyRLGymGenerator(GeneratorInterface):
             # init() returns the first prompt to be given to the model, and optional metadata dict
             chat_history, _ = await self._env_init(env, chat_history)
         except Exception as e:
-            logger.warning(f"[env={env_key}] Environment init failed for session {session_id}: {e}. Returning zero-reward trajectory.")
+            logger.warning(
+                f"[env={env_key}] Environment init failed for session {session_id}: {e}. Returning zero-reward trajectory."
+            )
             # Return a minimal failed trajectory with zero reward
             prompt_ids = self.tokenizer.apply_chat_template(
                 chat_history,
